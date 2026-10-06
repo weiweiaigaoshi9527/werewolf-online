@@ -77,10 +77,10 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                       keyboardType: TextInputType.url,
                       decoration: const InputDecoration(
                         labelText: '服务器地址',
-                        hintText: 'https://game.example.com',
+                        hintText: 'https://你的域名:${ServerConfig.kDefaultPort}',
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,

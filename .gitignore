@@ -64,6 +64,7 @@ test/*.json
 /服务端/*.exe
 /服务端/*.tar.gz
 /服务端/win/dist/
+/服务端/linux/dist/
 /服务端/linux/config/
 /服务端/android-server/dist/
 /服务端/android-server/build/

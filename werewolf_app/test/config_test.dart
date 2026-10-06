@@ -2,6 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:werewolf_app/config.dart';
 
 void main() {
+  group('默认端口', () {
+    test('仍是迁移后的 11111（历史上曾长期写死 8080）', () {
+      expect(ServerConfig.kDefaultPort, 11111);
+    });
+  });
+
   group('ServerConfig URL 拼装', () {
     test('REST 路径拼接与结尾斜杠归一', () {
       expect(ServerConfig(baseUrl: 'https://a.example.com:11111').api('/api/health').toString(),

@@ -6,12 +6,8 @@ class ServerConfig {
   static const kInsecure = 'allow_insecure_tls';
   static const kToken = 'auth_token';
 
-  /// 服务端默认端口（HTTPS 自签证书），必须与 application.yml 的 https 配置档一致。
+  /// 服务端端口：已从 8080 全线迁移到 11111（HTTPS 自签证书），与 application-https.yml 一致。
   static const int kDefaultPort = 11111;
-
-  // 注意：客户端不再内置任何「预设服务器」。原先这里写死了维护者的公网域名并做成
-  // “一键填入”的快捷项，属于私人基础设施，不该随客户端分发；所有端统一改由用户在
-  // 「连接服务器」页手工填写地址。需要批量分发预置地址时用下面的 bakedServer。
 
   /// 打包时可用 `--dart-define=WW_SERVER=https://你的域名:11111` 预置服务器地址，
   /// 装好即进登录页，省去首次「服务器设置」。未预置则仍走手工设置页。

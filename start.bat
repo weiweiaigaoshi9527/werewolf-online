@@ -1,41 +1,47 @@
 @echo off
-chcp 65001 >nul
-REM ç‹¼äººæ€ Online Â· å±€åŸŸç½‘ä¸€é”®å¯åŠ¨ï¼ˆå« SenseVoice/Kokoro è¯­éŸ³å¾®æœåŠ¡ï¼‰
+chcp 936 >nul
+REM ÀÇÈËÉ± Online ¡¤ ¾ÖÓòÍøÒ»¼üÆô¶¯£¨º¬ SenseVoice/Kokoro ÓïÒôÎ¢·þÎñ£©
+REM ËµÃ÷£º±¾ÎÄ¼þ±£´æÎª GBK(ANSI) ±àÂë£¬Îð¸ÄÎª UTF-8£¬·ñÔò cmd ½âÎöÖÐÎÄ×¢ÊÍ»á³ö´í¡£
 cd /d "%~dp0"
 
-REM ===== è¯­éŸ³æœåŠ¡å®¶ç›®å½•ï¼ˆPython/venv/æ¨¡åž‹/æœåŠ¡è„šæœ¬ï¼Œçº¯ ASCII è·¯å¾„ï¼Œé¿å…éž ASCII ç›®å½•å¯¼è‡´åŽŸç”Ÿåº“åŠ è½½å¤±è´¥ï¼‰=====
-REM ä¼˜å…ˆä½¿ç”¨å·²å­˜åœ¨çš„çŽ¯å¢ƒå˜é‡ï¼›å¦åˆ™å›žé€€åˆ°ä¸Žé¡¹ç›®åŒçº§ç›®å½• ..\werewolf-voiceï¼ˆç›¸å¯¹è·¯å¾„ï¼‰
+REM ===== ÓïÒô·þÎñ¼ÒÄ¿Â¼£¨Python/venv/Ä£ÐÍ/·þÎñ½Å±¾£¬´¿ ASCII Â·¾¶£¬±ÜÃâ·Ç ASCII Ä¿Â¼µ¼ÖÂÔ­Éú¿â¼ÓÔØÊ§°Ü£©=====
+REM ÓÅÏÈÊ¹ÓÃÒÑ´æÔÚµÄ»·¾³±äÁ¿£»·ñÔò»ØÍËµ½ÓëÏîÄ¿Í¬¼¶Ä¿Â¼ ..\werewolf-voice£¨Ïà¶ÔÂ·¾¶£©
 if not defined VOICE_HOME set VOICE_HOME=%~dp0..\werewolf-voice
-if not exist "%VOICE_HOME%" echo [è­¦å‘Š] æœªæ‰¾åˆ°è¯­éŸ³æœåŠ¡ç›®å½• "%VOICE_HOME%"ï¼Œè¯­éŸ³åŠŸèƒ½å°†ä¸å¯ç”¨ï¼ˆä¸å½±å“æ–‡å­—æ¨¡å¼å¯åŠ¨ï¼‰ã€‚
+if not exist "%VOICE_HOME%" echo [¾¯¸æ] Î´ÕÒµ½ÓïÒô·þÎñÄ¿Â¼ "%VOICE_HOME%"£¬ÓïÒô¹¦ÄÜ½«²»¿ÉÓÃ£¨²»Ó°ÏìÎÄ×ÖÄ£Ê½Æô¶¯£©¡£
 set WW_MODEL_DIR=%VOICE_HOME%\models
 set HF_ENDPOINT=https://hf-mirror.com
 
 set JAVA_HOME=%~dp0tools\jdk-21
 set PATH=%JAVA_HOME%\bin;%PATH%
 
-REM å¯åŠ¨æ—¶æŠŠè¿™äº›å·²å­˜åœ¨çš„ç”¨æˆ·åç½®ä¸ºç®¡ç†å‘˜ï¼ˆé€—å·åˆ†éš”ï¼‰ã€‚é»˜è®¤ç•™ç©ºï¼Œå¯ç”±çŽ¯å¢ƒå˜é‡æˆ–éƒ¨ç½²æ–¹æ˜¾å¼è®¾ç½®ã€‚
-REM ä»…å½“çŽ¯å¢ƒå˜é‡å°šæœªè®¾ç½®æ—¶æ‰ä¿æŒä¸ºç©ºï¼Œä¸å†ç¡¬ç¼–ç ä»»ä½•ç”¨æˆ·åã€‚
+REM ===== ¹ÜÀíÔ±Òýµ¼ÓÃ»§Ãû£ºÄ¬ÈÏÁô¿Õ£¬²»Ó²±àÂëÈÎºÎÓÃ»§Ãû£¬¿ÉÓÉ»·¾³±äÁ¿»ò²¿Êð·½ÏÔÊ½ÉèÖÃ =====
 if not defined ADMIN_BOOTSTRAP_USERNAMES set ADMIN_BOOTSTRAP_USERNAMES=
 
-REM ===== æ ¡éªŒ java.exe æ˜¯å¦å­˜åœ¨ï¼Œé¿å…åŽç»­å¯åŠ¨æ—¶å‡ºçŽ°éš¾æŽ’æŸ¥çš„æŠ¥é”™ =====
+REM ===== Ð£Ñé java.exe ÊÇ·ñ´æÔÚ£¬±ÜÃâºóÐøÆô¶¯Ê±³öÏÖÄÑÅÅ²éµÄ±¨´í =====
 if not exist "%JAVA_HOME%\bin\java.exe" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° Javaï¼š%JAVA_HOME%\bin\java.exe
-    echo        è¯·ç¡®è®¤ tools\jdk-21 å·²éšé¡¹ç›®æä¾›ï¼Œæˆ–è®¾ç½®æ­£ç¡®çš„ JAVA_HOMEã€‚
+    echo [´íÎó] Î´ÕÒµ½ Java£º%JAVA_HOME%\bin\java.exe
+    echo        ÇëÈ·ÈÏ tools\jdk-21 ÒÑËæÏîÄ¿Ìá¹©£¬»òÉèÖÃÕýÈ·µÄ JAVA_HOME¡£
     pause
     exit /b 1
 )
 
-if not exist target\werewolf-online-0.1.0-SNAPSHOT.jar (
-    echo [é¦–æ¬¡è¿è¡Œ] æœªæ£€æµ‹åˆ° jarï¼Œå¼€å§‹æž„å»ºï¼Œè¯·ç¨å€™...
+REM ===== Ð£Ñé jar£º²»½öÒªÇó´æÔÚ£¬»¹ÒªÇóÊÇ¡°¿ÉÔËÐÐµÄ Spring Boot ÅÖ°ü¡± =====
+REM Õý³£ÅÖ°üÔ¼ 50MB+£¨ÄÚº¬ BOOT-INF ÒÀÀµ£©£»ÈôÃ÷ÏÔÆ«Ð¡£¬ËµÃ÷ÉÏ´Î´ò°üÔÚ repackage ½×¶ÎÊ§°Ü
+REM £¨³£¼ûÔ­Òò£ºjar ±»ÕýÔÚÔËÐÐµÄ·þÎñÕ¼ÓÃ£©£¬²ÐÁôµÄÆÕÍ¨ jar ÎÞ·¨ÓÃ java -jar Æô¶¯£¬±ØÐëÖØ½¨¡£
+set JAR=target\werewolf-online-0.1.0-SNAPSHOT.jar
+set JARSIZE=0
+if exist "%JAR%" for %%A in ("%JAR%") do set JARSIZE=%%~zA
+if %JARSIZE% LSS 20000000 (
+    echo [¹¹½¨] Î´¼ì²âµ½¿ÉÔËÐÐµÄ jar£¨µ±Ç°´óÐ¡ %JARSIZE% ×Ö½Ú£©£¬¿ªÊ¼¹¹½¨£¬ÇëÉÔºò...
     call "%~dp0build.bat"
     if errorlevel 1 (
-        echo æž„å»ºå¤±è´¥ï¼Œè¯·æ£€æŸ¥é”™è¯¯ä¿¡æ¯
+        echo ¹¹½¨Ê§°Ü£¬Çë¼ì²é´íÎóÐÅÏ¢
         pause
         exit /b 1
     )
 )
 
-REM ===== æ‹‰èµ·ä¸¤æžšè¯­éŸ³å¾®æœåŠ¡ï¼ˆè‹¥å·²å®‰è£…ï¼‰ï¼Œç½® VOICE_ENABLED=trueï¼›å¦åˆ™é€€å›žçº¯æ–‡å­— =====
+REM ===== À­ÆðÁ½Ã¶ÓïÒôÎ¢·þÎñ£¨ÈôÒÑ°²×°£©£¬ÖÃ VOICE_ENABLED=true£»·ñÔòÍË»Ø´¿ÎÄ×Ö =====
 set VOICE_ENABLED=false
 if exist "%VOICE_HOME%\venv-asr\Scripts\python.exe" if exist "%VOICE_HOME%\asr_service.py" (
     start "WW-ASR" /min "%VOICE_HOME%\venv-asr\Scripts\python.exe" "%VOICE_HOME%\asr_service.py"
@@ -45,29 +51,35 @@ if exist "%VOICE_HOME%\venv-tts\Scripts\python.exe" if exist "%VOICE_HOME%\tts_s
 )
 if exist "%VOICE_HOME%\asr_service.py" if exist "%VOICE_HOME%\tts_service.py" set VOICE_ENABLED=true
 
-REM ===== HTTPSï¼šè‡ªç­¾è¯ä¹¦ç¼ºå¤±åˆ™è‡ªåŠ¨ç”Ÿæˆ =====
+REM ===== HTTPS£º×ÔÇ©Ö¤ÊéÈ±Ê§Ôò×Ô¶¯Éú³É =====
 if not exist "%~dp0config\keystore.p12" (
-    echo [é¦–æ¬¡è¿è¡Œ] ç”Ÿæˆè‡ªç­¾ HTTPS è¯ä¹¦...
+    echo [Ê×´ÎÔËÐÐ] Éú³É×ÔÇ© HTTPS Ö¤Êé...
     call "%~dp0make-cert.bat"
 )
 set SSL_KEYSTORE=file:%~dp0config\keystore.p12
 
+REM ===== Ì½²â±¾»ú¾ÖÓòÍø IPv4£¨ÓÃ usebackq+·´ÒýºÅ£¬¹ÜµÀ·ûÎÞÐè×ªÒå£¬±ÜÃâ¾ÉÐ´·¨ ^| ±»´íÎó½âÎö£©=====
+set LANIP=
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.*' } | Select-Object -First 1).IPAddress"`) do set LANIP=%%i
+if not defined LANIP set LANIP=±¾»úIP
+
 echo ============================================================
-echo   ç‹¼äººæ€ Online å¯åŠ¨ä¸­ï¼ˆHTTPSï¼‰...
-echo   æœ¬æœºè®¿é—®:   https://localhost:11111
-echo   è¯­éŸ³æ¨¡å¼:   %VOICE_ENABLED%  (SenseVoice/Kokoro è‹¥é¦–æ¬¡åŠ è½½æ¨¡åž‹éœ€ç­‰å¾…æ•°åç§’)
-for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.*' } ^| Select-Object -First 1).IPAddress"') do echo   å±€åŸŸç½‘è®¿é—®: https://%%i:11111   ^(éº¦å…‹é£Žéœ€ HTTPSï¼Œé¦–æ¬¡è®¿é—®è¯·åœ¨æµè§ˆå™¨ç‚¹â€œé«˜çº§â†’ç»§ç»­è®¿é—®â€ä¿¡ä»»è‡ªç­¾è¯ä¹¦^)
-echo   åœæ­¢æœåŠ¡:   å…³é—­æœ¬çª—å£ æˆ– è¿è¡Œ stop.bat
-echo   æŒ‰ Ctrl+C ä¹Ÿå¯åœæ­¢
+echo   ÀÇÈËÉ± Online Æô¶¯ÖÐ£¨HTTPS£©...
+echo   ±¾»ú·ÃÎÊ:   https://localhost:11111
+echo   ¾ÖÓòÍø·ÃÎÊ: https://%LANIP%:11111   (Âó¿Ë·çÐè HTTPS£¬Ê×´Î·ÃÎÊÇëÔÚä¯ÀÀÆ÷µã¡°¸ß¼¶ - ¼ÌÐø·ÃÎÊ¡±ÐÅÈÎ×ÔÇ©Ö¤Êé)
+echo   ÓïÒôÄ£Ê½:   %VOICE_ENABLED%  (SenseVoice/Kokoro ÈôÊ×´Î¼ÓÔØÄ£ÐÍÐèµÈ´ýÊýÊ®Ãë)
+echo   Í£Ö¹·þÎñ:   ¹Ø±Õ±¾´°¿Ú »ò ÔËÐÐ stop.bat
+echo   °´ Ctrl+C Ò²¿ÉÍ£Ö¹
 echo ============================================================
 echo.
-REM ===== å®ˆæŠ¤å¾ªçŽ¯ï¼šç®¡ç†å‘˜åœ¨åŽå°ç‚¹â€œé‡å¯â€ä¼šä»¥é€€å‡ºç  86 ç»“æŸï¼Œè¿™é‡Œè‡ªåŠ¨é‡æ–°æ‹‰èµ·ï¼›æ­£å¸¸é€€å‡º/å…³é—­åˆ™åœæ­¢ =====
+REM ===== ÊØ»¤Ñ­»·£º¹ÜÀíÔ±ÔÚºóÌ¨µã¡°ÖØÆô¡±»áÒÔÍË³öÂë 86 ½áÊø£¬ÕâÀï×Ô¶¯ÖØÐÂÀ­Æð£»Õý³£ÍË³ö/¹Ø±ÕÔòÍ£Ö¹ =====
 :ww_loop
-"%JAVA_HOME%\bin\java.exe" -jar target\werewolf-online-0.1.0-SNAPSHOT.jar --spring.profiles.active=https
+"%JAVA_HOME%\bin\java.exe" -jar %JAR% --spring.profiles.active=https
 if "%ERRORLEVEL%"=="86" (
     echo.
-    echo [å®ˆæŠ¤] æ”¶åˆ°é‡å¯æŒ‡ä»¤ï¼Œæ­£åœ¨é‡æ–°æ‹‰èµ·æœåŠ¡...
+    echo [ÊØ»¤] ÊÕµ½ÖØÆôÖ¸Áî£¬ÕýÔÚÖØÐÂÀ­Æð·þÎñ...
     timeout /t 2 /nobreak >nul
     goto ww_loop
 )
-echo [å®ˆæŠ¤] æœåŠ¡å·²é€€å‡ºï¼ˆé€€å‡ºç  %ERRORLEVEL%ï¼‰ã€‚
+echo [ÊØ»¤] ·þÎñÒÑÍË³ö£¨ÍË³öÂë %ERRORLEVEL%£©¡£
+pause
