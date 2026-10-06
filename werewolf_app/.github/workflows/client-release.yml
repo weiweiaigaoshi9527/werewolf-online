@@ -1,0 +1,165 @@
+name: 三端客户端构建
+
+# Linux 桌面版无法在 Windows 上交叉产出（Flutter 要求 GNU/Linux 构建主机），
+# 因此三端安装包统一由本工作流在各自官方 runner 上出；Windows/Android 本机也能出（见 README）。
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: '是否创建 GitHub Release（填 yes）'
+        required: false
+        default: 'yes'
+  push:
+    tags: ['v*']
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+
+jobs:
+  meta:
+    name: 读取版本号
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: |
+          v=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*([0-9.+]+).*/\1/')
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "本次构建版本：$v"
+
+  quality:
+    name: 静态检查与单元测试
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      # 先做工作流自检：引用的路径是否存在、版本号能否抽出、离线套件规模对不对。
+      # 这类错误没必要烧一次真构建才发现。
+      - run: dart run tool/check_workflow.dart
+      - run: flutter analyze --no-pub
+      # 跑整个离线套件：live 契约测试在没有 WW_LIVE_* 时会自动 skip，
+      # 所以不需要（也不应该）在这里填真实服务端凭据。
+      # 之前这里只列了 3 个文件，回放/动画/后台/房间/WS 派发全都不在 CI 覆盖内。
+      - run: flutter test
+
+  windows:
+    name: Windows x64
+    needs: [meta, quality]
+    # 不能用 windows-latest：该标签已迁移到 windows-2025-vs2026（VS 2026），
+    # Flutter 3.24.5 不认识 VS 2026，会算出错误生成器 "Visual Studio 16 2019" 导致 CMake 找不到 VS。
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 压缩便携包
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $zip = "dist\werewolf-client-${{ needs.meta.outputs.version }}-windows-x64.zip"
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath $zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist\*.zip
+
+  linux:
+    name: Linux x64（deb + 便携包）
+    needs: [meta, quality]
+    runs-on: ubuntu-22.04
+    # 在干净的 ubuntu:22.04 容器里构建，而不是直接用 runner 镜像：
+    # 宿主 runner 镜像启用了 packages.microsoft.com 等第三方源、并预装了一批包，
+    # 会让 libgstreamer1.0-dev（audioplayers 的 Linux 后端依赖）解析失败——
+    #   libgstreamer1.0-dev : Depends: libunwind-dev
+    #   E: Unable to correct problems, you have held broken packages.
+    # 干净容器里没有任何预装包，这些依赖能从 jammy 仓库正常解出。
+    container: ubuntu:22.04
+    steps:
+      - name: 安装构建依赖
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git curl ca-certificates unzip xz-utils jq \
+            clang cmake ninja-build pkg-config libgtk-3-dev libglu1-mesa-dev \
+            libstdc++-12-dev liblzma-dev patchelf dpkg-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          # 容器里 Flutter SDK 由 runner 挂载进来，属主与容器内 root 不同，
+          # git 会以 "detected dubious ownership" 拒绝操作（flutter pub get 会直接失败）。
+          git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build linux --release --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 产出 deb 与 tar.xz
+        run: |
+          VERSION="${{ needs.meta.outputs.version }}" bash packaging/linux/make-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: dist/*
+
+  android:
+    name: Android APK / AAB
+    needs: [meta, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      # 通用包与分架构包是两次独立构建：--split-per-abi 不会产出 app-release.apk，
+      # 所以不能"一次构建再复制两种产物"。
+      - name: 构建通用 APK
+        run: flutter build apk --release --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 构建分架构 APK
+        run: flutter build apk --release --split-per-abi --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - run: flutter build appbundle --release --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 收集产物
+        run: |
+          set -e
+          V="${{ needs.meta.outputs.version }}"
+          S=build/app/outputs/flutter-apk
+          mkdir -p dist
+          cp "$S/app-release.apk"                        "dist/werewolf-client-$V-android-universal.apk"
+          cp "$S/app-arm64-v8a-release.apk"             "dist/werewolf-client-$V-android-arm64-v8a.apk"
+          cp "$S/app-armeabi-v7a-release.apk"           "dist/werewolf-client-$V-android-armeabi-v7a.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "dist/werewolf-client-$V.aab"
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+
+  release:
+    name: 发布
+    needs: [meta, windows, linux, android]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

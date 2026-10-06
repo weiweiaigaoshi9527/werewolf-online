@@ -1,0 +1,61 @@
+/* 演示页样式 —— 与 wolfweb 同源的令牌体系（精简版） */
+:root{--r-sm:10px;--r:14px;--r-lg:18px;
+  --bg-void:#05080f;--bg-panel:#141a2e;--bg-raise:#202a45;--bg-sunken:rgba(6,9,18,.55);
+  --border-dim:#2a3350;--border-soft:#232c47;--border-strong:#3a466e;
+  --text-main:#cdd6f4;--text-dim:#8b96b8;--text-faint:#5b6684;
+  --accent:#e8a33d;--accent-soft:rgba(232,163,61,.14);--accent-dim:#a9782c;
+  --blood:#a4243b;--green:#4f9d69;--moon:#e3e8ff;
+  --grad-panel:linear-gradient(168deg,#1b2440 0%,#141a2e 55%,#10162a 100%);
+  --grad-accent:linear-gradient(180deg,#f0b553 0%,#d99a35 45%,#b57e22 100%)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,"Segoe UI","Microsoft YaHei";color:var(--text-main);line-height:1.5;
+  background:var(--bg-void) radial-gradient(1100px 560px at 15% -8%,rgba(139,147,255,.15),transparent 60%);min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto;padding:18px}
+header{display:flex;align-items:center;gap:12px;padding:8px 4px 16px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:19px;color:var(--moon)}
+.brand small{color:var(--accent)}
+.demo-tag{font-size:11px;color:var(--accent);border:1px solid var(--accent-dim);border-radius:999px;padding:2px 10px;margin-left:8px;background:var(--accent-soft)}
+.muted{color:var(--text-dim);font-size:13px}
+.card{background:var(--grad-panel);border:1px solid var(--border-soft);border-radius:var(--r-lg);padding:22px}
+.card+.card{margin-top:14px}
+.btn{padding:10px 18px;border-radius:var(--r-sm);border:1px solid var(--border-dim);background:var(--bg-raise);color:var(--text-main);cursor:pointer;transition:.2s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.gold{background:var(--grad-accent);color:#232333;font-weight:700;border:0}
+.btn.sm{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.field{margin:14px 0}
+input[type=text],textarea{width:100%;padding:11px 12px;border-radius:var(--r-sm);border:1px solid var(--border-dim);background:var(--bg-sunken);color:var(--text-main);outline:none;font:inherit}
+input:focus{border-color:var(--accent)}
+.phasebar{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.phase-chip{padding:6px 14px;border-radius:999px;background:var(--grad-accent);color:#232333;font-weight:800;font-size:13px}
+.game-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px}
+@media(max-width:900px){.game-grid{grid-template-columns:1fr}}
+.feed{display:flex;flex-direction:column;gap:7px;max-height:46vh;overflow-y:auto;padding-right:4px}
+.fitem{padding:8px 12px;border-radius:10px;background:var(--bg-panel);border:1px solid var(--border-soft);font-size:13px}
+.fitem.narr{background:var(--accent-soft);border-color:var(--accent-dim);color:#ffd98a}
+.fitem.sys{color:var(--text-dim)}
+.fitem b{color:var(--accent)}
+.actbox{margin-top:12px}
+.targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.myrole{display:flex;gap:10px;align-items:center;padding:12px;border-radius:var(--r);background:var(--bg-raise);border:1px solid var(--border-dim);margin-bottom:10px}
+.role-name{font-weight:800;color:var(--accent);font-size:17px}
+.seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.seat{background:var(--grad-panel);border:1px solid var(--border-soft);border-radius:var(--r);padding:10px;text-align:center}
+.seat .no{color:var(--text-faint);font-size:11px;font-weight:700}
+.seat .nm{font-size:12px;margin-top:2px;word-break:break-all}
+.seat .rl{margin-top:4px}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;border:1px solid var(--border-dim);font-size:11px;color:var(--text-dim)}
+.tag.red{color:#ff8a8a;border-color:var(--blood)}
+.tag.green{color:#8fe0b0;border-color:var(--green)}
+.dead{opacity:.45}
+.gseat{cursor:pointer}
+.gseat.sel{outline:2px solid var(--accent)}
+.winline{text-align:center;font-size:19px;font-weight:800;padding:14px;border-radius:var(--r);margin-bottom:12px}
+.winline.good{background:rgba(79,157,105,.18);color:#8fe0b0;border:1px solid var(--green)}
+.winline.wolf{background:rgba(164,36,59,.2);color:#ff9a9a;border:1px solid var(--blood)}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--bg-raise);border:1px solid var(--border-strong);
+  padding:10px 18px;border-radius:999px;font-size:13px;display:none;z-index:9}
+.hidden{display:none!important}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+th{text-align:left;color:var(--text-dim);padding:7px 8px;border-bottom:1px solid var(--border-strong);font-weight:600}
+td{padding:8px;border-bottom:1px solid var(--border-soft)}

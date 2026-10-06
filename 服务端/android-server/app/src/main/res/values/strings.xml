@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">狼人杀服务端</string>
+    <string name="notify_channel">服务器运行状态</string>
+    <string name="notify_title">狼人杀服务端运行中</string>
+</resources>

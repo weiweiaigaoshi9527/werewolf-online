@@ -1,0 +1,8 @@
+{
+  "name": "werewolf-vhost-demo",
+  "version": "2.0.0",
+  "private": true,
+  "description": "狼人杀 Online 虚拟主机版 · 在线试玩演示（Node.js + Supabase）",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" }
+}

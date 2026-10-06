@@ -1,0 +1,142 @@
+@charset "UTF-8";
+/* ==========================================================================
+   ux.css · 外观面板与新体验组件（主题网格/强调色/记录筛选/投票条/计时环/@补全/引导/快捷键）
+   只使用 style.css 的令牌，不重复定义结构组件。
+   ========================================================================== */
+
+/* —— 外观面板 —— */
+.st-sub { margin-left: var(--sp-2); font-size: var(--fs-xs); font-weight: 400; color: var(--text-faint); }
+.st-dice { margin-left: var(--sp-2); float: right; }
+.seg-fill { display: flex; width: 100%; }
+.seg-fill .seg-btn { flex: 1; }
+
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: var(--sp-2); }
+.theme-cell {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2);
+  border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+  background: var(--bg-sunken); color: var(--text-dim);
+  font-size: var(--fs-xs); cursor: pointer; text-align: left;
+  transition: border-color var(--t-fast), color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+}
+.theme-cell:hover { transform: translateY(-2px); color: var(--text-main); border-color: var(--border-strong); }
+.theme-cell.active { border-color: var(--accent); color: var(--text-main); box-shadow: var(--glow-accent); }
+.tc-swatch { display: flex; gap: 3px; }
+.tc-swatch i { flex: 1; height: 22px; border-radius: 5px; border: 1px solid rgba(128, 128, 128, .28); }
+.tc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.accent-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.accent-dot {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid var(--border-dim); cursor: pointer;
+  transition: transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.accent-dot:hover { transform: scale(1.1); }
+.accent-dot.active { border-color: var(--text-main); box-shadow: 0 0 0 3px var(--accent-soft); }
+.accent-dot.auto {
+  width: auto; height: 30px; padding: 0 var(--sp-3); border-radius: var(--r-pill);
+  display: grid; place-items: center; font-size: var(--fs-xs); font-weight: 600;
+  background: var(--bg-sunken); color: var(--text-dim);
+  border-image: linear-gradient(120deg, #e8a33d, #ff6b57, #e35d8a, #9b7dff, #4aa3ff, #45e0b8) 1;
+}
+
+/* —— 对局记录工具条 —— */
+.feed-tools {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 2;
+  margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-panel); border-bottom: 1px solid var(--border-soft);
+}
+.feed-filter { overflow-x: auto; scrollbar-width: none; }
+.feed-filter::-webkit-scrollbar { display: none; }
+.feed-filter .seg-btn { height: 26px; padding: 0 var(--sp-3); font-size: var(--fs-xs); }
+.feed-seat-clear { width: 26px; height: 26px; }
+#game-feed .feed-item.dim { opacity: .26; }
+#game-feed .feed-item[data-seat] { cursor: pointer; }
+#game-feed .feed-item:hover { border-left-color: var(--accent-dim); }
+
+/* —— 投票实时条 —— */
+.vote-bar {
+  padding: var(--sp-4);
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg);
+  background: var(--grad-panel-soft); box-shadow: var(--shadow-sm), var(--hair);
+}
+.vb-head { display: flex; align-items: baseline; gap: var(--sp-2); font-family: var(--font-display); font-size: var(--fs-md); font-weight: 650; margin-bottom: var(--sp-3); }
+.vb-total { margin-left: auto; font-size: var(--fs-tiny); font-weight: 400; color: var(--text-faint); font-family: var(--font-ui); }
+.vb-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 44px auto; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.vb-seat { font-size: var(--fs-sm); font-weight: 700; }
+.vb-track { height: 10px; border-radius: var(--r-pill); background: var(--bg-sunken); overflow: hidden; border: 1px solid var(--border-soft); }
+.vb-track i { display: block; height: 100%; border-radius: inherit; background: var(--grad-accent); transition: width var(--t-slow); }
+.vb-n { font-size: var(--fs-xs); font-weight: 700; color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+.vb-from { font-size: var(--fs-tiny); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* —— 结算大事记 —— */
+.settle-digest { padding: 0 var(--sp-5) var(--sp-4); border-top: 1px solid var(--border-soft); }
+.sd-title { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--text-faint); }
+.sd-item { display: flex; align-items: baseline; gap: var(--sp-3); padding: 3px 0; font-size: var(--fs-sm); }
+.sd-item b { flex: none; width: 46px; font-size: var(--fs-tiny); color: var(--text-faint); font-weight: 500; }
+
+/* —— 发言计时环 —— */
+.timer-ring { width: 26px; height: 26px; flex: none; transform: rotate(-90deg); }
+.timer-ring .tr-bg { fill: none; stroke: var(--border-dim); stroke-width: 3; }
+.timer-ring .tr-fg { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .4s linear, stroke var(--t); }
+.timer-ring.urgent .tr-fg { stroke: #ff7a8f; }
+/* 显隐由 ux.js 依据 #game-timer 文本切换 .hidden，这里不再用兄弟选择器猜状态 */
+
+/* —— @ 自动补全 —— */
+.chat-input { position: relative; }
+.at-pop {
+  position: absolute; left: var(--sp-3); bottom: calc(100% - 2px); z-index: 5;
+  min-width: 180px; max-height: 220px; overflow-y: auto; padding: var(--sp-1);
+  border: 1px solid var(--border-dim); border-radius: var(--r-sm);
+  background: var(--bg-panel); box-shadow: var(--shadow-lg);
+  animation: pop-in var(--t-fast) var(--ease);
+}
+.at-pop button {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  padding: 6px var(--sp-3); border: 0; border-radius: var(--r-xs);
+  background: transparent; color: var(--text-main); font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.at-pop button:hover { background: var(--bg-raise); }
+.at-pop i { font-style: normal; margin-left: auto; font-size: var(--fs-tiny); color: var(--text-faint); }
+
+/* —— 快捷键帮助 —— */
+.hk-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hk-row { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-sm); }
+.hk-row kbd {
+  flex: none; min-width: 78px; padding: 3px var(--sp-2); text-align: center;
+  border: 1px solid var(--border-dim); border-bottom-width: 2px; border-radius: var(--r-xs);
+  background: var(--bg-raise); color: var(--text-main);
+  font-family: ui-monospace, Consolas, monospace; font-size: var(--fs-xs);
+}
+.hk-row span { color: var(--text-dim); }
+
+/* —— 新手引导 —— */
+.guide-card { text-align: center; }
+.gc-body { padding: var(--sp-7) var(--sp-6) var(--sp-4); }
+.gc-icon { font-size: 46px; line-height: 1; }
+.gc-h { margin-top: var(--sp-3); font-family: var(--font-display); font-size: var(--fs-xl); font-weight: 650; }
+.gc-p { margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.65; }
+.gc-dots { display: flex; justify-content: center; gap: 6px; padding-bottom: var(--sp-4); }
+.gc-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); transition: background var(--t), transform var(--t); }
+.gc-dots i.on { background: var(--accent); transform: scale(1.35); }
+
+/* —— 行动按钮防连点态 —— */
+.ga-btn.pending { opacity: .55; pointer-events: none; }
+.ga-btn:disabled { opacity: .45; }
+
+/* —— 浅色主题下的微调（遮罩/描边按明暗走） —— */
+body.theme-light .at-pop, body.theme-light .pop { background: var(--bg-panel); }
+body.theme-light .hk-row kbd { background: var(--bg-panel-2); }
+
+/* —— 窄屏 —— */
+@media (max-width: 900px) {
+  .theme-grid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+  .tc-swatch i { height: 18px; }
+  .vb-row { grid-template-columns: 38px minmax(0, 1fr) 40px; }
+  .vb-from { display: none; }
+  .feed-tools { margin-left: calc(-1 * var(--sp-3)); margin-right: calc(-1 * var(--sp-3)); }
+  .hk-row { flex-direction: column; gap: 2px; }
+  .hk-row kbd { min-width: 0; }
+}

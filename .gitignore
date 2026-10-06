@@ -1,0 +1,109 @@
+# =====================================================================
+# 安全告警：本仓库包含真实账号数据库（H2 *.mv.db）、服务端私钥
+# （config/keystore.p12、config/aes.key）以及测试凭证 token，
+# 均为高度敏感内容，切勿提交到任何远程仓库！
+# =====================================================================
+
+# ===== 构建产物 =====
+/target/
+/repository/
+
+# ===== 运行时数据（H2 数据库、日志、上传、锁文件等）=====
+/data/
+/uploads/
+/logs/
+*.log
+*.bak
+*.mv.db
+*.trace.db
+*.lock.db
+
+# ===== 敏感配置与密钥，绝不入库 =====
+/config/
+config/keystore.p12
+config/aes.key
+*.p12
+*.jks
+*.key
+*.pem
+*.pfx
+*.env
+id_rsa*
+
+# ===== 测试凭证（含 token / 密码，勿提交真实值）=====
+test/*.env
+test/tokens.sh
+test/tokens.env
+test/alice.env
+test/*.json
+
+# ===== 内置工具链（体积大，请用户自行下载）=====
+/tools/jdk-21/
+/tools/dl/
+/tools/apache-maven-3.9.16/
+/tools/admin/*.class
+/tools/admin/*.jar
+/tools/uireflow/php-portable/
+/tools/uireflow/php-portable.zip
+# 开发调试残留（抓包/截图产物）
+/tools/uireflow/*.out
+/tools/uireflow/*.err
+
+# ===== 开发脚本目录里的凭据（勿入库）=====
+/tools/uireflow/*token*
+/tools/uireflow/*_tok*.txt
+/tools/uireflow/wwcookie.txt
+/tools/uireflow/wwcfg.json
+/tools/uireflow/qa_*.txt
+
+# ===== 分发用安装包（单个 50~130MB，不入库；需要走 Release 或网盘）=====
+/downloads/*
+!/downloads/manifest.json
+/服务端/*.apk
+/服务端/*.zip
+/服务端/*.exe
+/服务端/*.tar.gz
+/服务端/win/dist/
+/服务端/linux/config/
+/服务端/android-server/dist/
+/服务端/android-server/build/
+/服务端/android-server/.gradle/
+/服务端/android-server/local.properties
+/服务端/android-server/app/src/main/assets/bootstrap.zip
+/服务端/android-server/app/src/main/assets/werewolf-online.jar
+/客户端/*.apk
+/客户端/*.zip
+/客户端/*.deb
+/客户端/*.tar.xz
+/客户端/*.exe
+/wolfweb-交付/*.zip
+
+# ===== jpackage 应用镜像（自带 Java 运行时，体积大）=====
+/服务管理/
+/服务管理_old/
+
+# ===== 归档与备份 =====
+/archive/
+/_backup/
+
+# ===== 截图：只保留顶层文档用 PNG，排除浏览器 profile 等子目录 =====
+/screenshots/*/
+
+# ===== Flutter / 客户端工程产物 =====
+/werewolf_app/build/
+/werewolf_app/.dart_tool/
+/werewolf_app/dist/
+/werewolf_app/windows/flutter/ephemeral/
+/werewolf_app/android/local.properties
+/werewolf_app/.flutter-plugins
+/werewolf_app/.flutter-plugins-dependencies
+
+# ===== IDE / 编辑器 =====
+.idea/
+*.iml
+
+# ===== Node / 前端依赖 =====
+node_modules/
+
+# ===== 本地启动脚本（可能含明文口令）=====
+start.bat.local

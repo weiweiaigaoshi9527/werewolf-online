@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>狼人杀 · 后台管理</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  /* 管理台是独立整页滚动：覆盖主应用基础样式（style.css）对 body 的滚动锁定 */
+  html { overflow-y: auto !important; }
+  body { overflow: visible !important; overflow-x: hidden; }
+  body { background: var(--bg-deep); color: var(--text-main); font-family: system-ui, "Microsoft YaHei", sans-serif; }
+  .adm-wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 60px; }
+  .adm-top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .adm-title { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+  .adm-title .sub { color: var(--accent); font-size: 13px; margin-left: 8px; letter-spacing: 1px; }
+  .adm-spacer { flex: 1; }
+  .adm-card { background: var(--bg-panel); border: 1px solid var(--border-dim); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+  .adm-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .adm-tab { padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border-dim); background: var(--bg-panel-2); color: var(--text-dim); cursor: pointer; font-size: 14px; }
+  .adm-tab.active { color: var(--moon); border-color: var(--accent); background: rgba(232,163,61,.12); }
+  .adm-panel { display: none; } .adm-panel.active { display: block; }
+  .field { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+  .field label { width: 150px; color: var(--text-dim); font-size: 13px; flex: 0 0 auto; }
+  .field input[type=text], .field input[type=number], .field input[type=password], .field select, .field textarea {
+    flex: 1; min-width: 220px; background: var(--bg-deep); border: 1px solid var(--border-dim); border-radius: 8px; padding: 8px 10px; color: var(--text-main); font-family: inherit; font-size: 14px; }
+  .field textarea { min-height: 66px; resize: vertical; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 12px; }
+  .stat { background: var(--bg-panel-2); border: 1px solid var(--border-dim); border-radius: 10px; padding: 14px; }
+  .stat b { font-size: 24px; color: var(--moon); display: block; } .stat span { color: var(--text-dim); font-size: 12px; }
+  .pill { display:inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
+  .pill.ok { background: rgba(79,157,105,.18); color: var(--green); } .pill.bad { background: rgba(164,36,59,.18); color: #e07a86; }
+  table.adm { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.adm th, table.adm td { padding: 8px 10px; border-bottom: 1px solid var(--border-dim); text-align: left; }
+  table.adm th { color: var(--text-dim); font-weight: 600; }
+  .btn { cursor: pointer; border: 1px solid var(--border-dim); background: var(--bg-panel-2); color: var(--text-main); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
+  .btn.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+  .btn.danger { color: #e07a86; border-color: #5a2731; }
+  .btn.sm { padding: 3px 9px; font-size: 12px; }
+  .login { max-width: 360px; margin: 12vh auto 0; }
+  .login .adm-card { padding: 26px 24px; }
+  .login h1 { text-align: center; margin: 0 0 4px; font-size: 22px; letter-spacing: 3px; }
+  .login p { text-align: center; color: var(--text-dim); margin: 0 0 18px; font-size: 13px; }
+  .login input { width: 100%; box-sizing: border-box; margin-bottom: 12px; background: var(--bg-deep); border: 1px solid var(--border-dim); border-radius: 8px; padding: 11px 12px; color: var(--text-main); }
+  .err { color: #e07a86; font-size: 13px; min-height: 18px; margin: 6px 0; }
+  .hint { color: var(--text-dim); font-size: 12px; margin: 6px 0; }
+  .row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  /* ===== 后台 UI/动画优化 ===== */
+  body { background: radial-gradient(1200px 800px at 15% -5%, #16203c 0%, transparent 60%), var(--bg-deep, #090d18); }
+  .adm-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; box-shadow: 0 6px 22px rgba(0,0,0,.28); }
+  .adm-card:hover { transform: translateY(-2px); border-color: rgba(232,163,61,.4); box-shadow: 0 12px 30px rgba(0,0,0,.36); }
+  .adm-tab { transition: all .16s ease; }
+  .adm-tab:hover { color: var(--moon, #e3e8ff); border-color: var(--accent, #e8a33d); transform: translateY(-1px); }
+  .adm-tab.active { box-shadow: 0 0 0 1px rgba(232,163,61,.4), 0 4px 14px rgba(232,163,61,.18); }
+  .btn { transition: all .14s ease; }
+  .btn:hover { transform: translateY(-1px); border-color: var(--accent, #e8a33d); }
+  .btn:active { transform: translateY(0); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  table.adm tbody tr { transition: background .12s ease; }
+  table.adm tbody tr:hover { background: rgba(232,163,61,.06); }
+  .stat { transition: transform .16s ease, border-color .16s ease; }
+  .stat:hover { transform: translateY(-2px); border-color: var(--accent, #e8a33d); }
+  .pill { border-radius: 999px; }
+  .adm-panel { animation: admIn .22s ease; }
+  @keyframes admIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (max-width:640px){ .field label { width: 100%; } .adm-title { font-size: 18px; } }
+</style>
+</head>
+<body>
+<!-- 登录 -->
+<div id="adm-login" class="login hidden">
+  <div class="adm-card">
+    <h1>🐺 后台管理</h1>
+    <p>仅管理员可登录</p>
+    <input type="text" id="lg-user" placeholder="用户名" autocomplete="username">
+    <input type="password" id="lg-pass" placeholder="密码" autocomplete="current-password">
+    <button class="btn primary" id="lg-btn" style="width:100%">登 录</button>
+    <div class="err" id="lg-err"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="adm-app" class="adm-wrap hidden">
+  <div class="adm-top">
+    <div class="adm-title">🐺 狼人杀<span class="sub">后台管理</span></div>
+    <div class="adm-spacer"></div>
+    <div id="adm-who" class="hint"></div>
+    <button class="btn" id="adm-logout">退出</button>
+  </div>
+
+  <div class="adm-tabs">
+    <div class="adm-tab active" data-tab="system">系统状态</div>
+    <div class="adm-tab" data-tab="ai">AI API 配置</div>
+    <div class="adm-tab" data-tab="voice">语音服务配置</div>
+    <div class="adm-tab" data-tab="users">用户管理</div>
+    <div class="adm-tab" data-tab="rooms">房间管理</div>
+    <div class="adm-tab" data-tab="redeem">兑换码</div>
+    <div class="adm-tab" data-tab="tickets">工单</div>
+    <div class="adm-tab" data-tab="forum">论坛</div>
+    <div class="adm-tab" data-tab="ops">运维工具</div>
+    <div class="adm-tab" data-tab="server">服务器控制</div>
+  </div>
+
+  <div id="p-system" class="adm-panel active">
+    <div class="adm-card" id="sys-box">加载中…</div>
+    <div class="adm-card">
+      <div class="panel-title">🛠 维护通知（底部弹幕）</div>
+      <div class="hint">向所有在线用户（含网页与各端 App）推送一条全局维护提示，仅在各客户端屏幕最底部滚动展示，默认保留 6 小时。留空并发送即清除当前通知。</div>
+      <div class="field"><label>通知内容</label><input type="text" id="mn-text" maxlength="120" placeholder="例：今晚 23:00–23:30 服务器例行维护，可能短暂掉线"></div>
+      <div class="field"><label></label><div class="row-actions">
+        <button class="btn primary" id="mn-send">发送通知</button>
+        <button class="btn" id="mn-clear">清除通知</button>
+        <span class="hint" id="mn-status"></span></div></div>
+    </div>
+
+    <div class="adm-card">
+      <div class="panel-title">🧩 功能开关（大厅 / 房间）</div>
+      <div class="hint">取消勾选并保存后，对应功能在大厅与房间中对所有玩家隐藏；房间模式（语音同传/双人组队/道具赛）会被服务端直接拒绝。重新勾选即可恢复。</div>
+      <div id="feat-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0"></div>
+      <div class="row-actions"><button class="btn primary" id="feat-save">保存功能开关</button><span class="hint" id="feat-status"></span></div>
+    </div>
+
+    <div class="adm-card">
+      <div class="panel-title">🖥 显示设置</div>
+      <div class="hint">限制游戏页面的最大高度，用屏幕高度的百分比表示（例：80 = 占屏 80%，页面整体居中）。0 = 不限制。保存后所有客户端刷新生效。</div>
+      <div class="field"><label>网页最大高度（%，0=不限）</label><input type="number" id="dp-maxh" min="0" max="100" step="5" placeholder="0"></div>
+      <div class="field"><label></label><div class="row-actions">
+        <button class="btn primary" id="dp-save">保存显示设置</button>
+        <span class="hint" id="dp-status"></span></div></div>
+    </div>
+  </div>
+
+  <div id="p-ai" class="adm-panel">
+    <div class="adm-card">
+      <div class="field"><label>Base URL</label><input type="text" id="ai-base" placeholder="https://... 或 mock://local"></div>
+      <div class="field"><label>API Key</label><input type="text" id="ai-key" placeholder="留空则不修改"></div>
+      <div class="field"><label>模型</label><input type="text" id="ai-model"></div>
+      <div class="field"><label>思考深度</label><select id="ai-depth"><option value="low">低（快·省）</option><option value="medium">中</option><option value="high">高（强推理）</option></select></div>
+      <div class="field"><label>温度</label><input type="number" id="ai-temp" step="0.1" min="0" max="2"></div>
+      <div class="field"><label>超时(s)</label><input type="number" id="ai-timeout" min="5" max="180"></div>
+      <div class="field"><label>重试</label><input type="number" id="ai-retry" min="0" max="5"></div>
+      <div class="field"><label>并发</label><input type="number" id="ai-conc" min="1" max="16"></div>
+      <div class="field"><label>启用 AI</label><input type="checkbox" id="ai-enabled" style="width:auto"></div>
+      <div class="field"><label></label><div class="row-actions">
+        <button class="btn primary" id="ai-save">保存</button>
+        <button class="btn" id="ai-test">测试连通</button>
+        <span class="hint" id="ai-status"></span></div></div>
+    </div>
+  </div>
+
+  <div id="p-voice" class="adm-panel"><div class="adm-card" id="voice-box">加载中…</div></div>
+
+  <div id="p-users" class="adm-panel">
+    <div class="adm-card">
+      <div class="field"><label>搜索</label><input type="text" id="u-kw" placeholder="用户名/昵称"><button class="btn sm" id="u-search">查询</button></div>
+      <div class="field" style="align-items:center;gap:8px;background:var(--bg-panel-2);border:1px solid var(--border-dim);border-radius:10px;padding:8px 10px">
+        <label style="width:auto"><input type="checkbox" id="u-selall" style="width:auto"> 全选</label>
+        <span class="hint" id="u-selcount">已选 0 人</span>
+        <span class="adm-spacer" style="flex:1"></span>
+        <span class="hint">批量操作：</span>
+        <button class="btn sm" data-b="ban" data-v="1">封禁</button>
+        <button class="btn sm" data-b="ban" data-v="0">解封</button>
+        <button class="btn sm" data-b="admin" data-v="1">设为管理</button>
+        <button class="btn sm" data-b="admin" data-v="0">取消管理</button>
+        <button class="btn sm" data-b="gold">增减金币</button>
+        <button class="btn sm" data-b="vip">批量VIP</button>
+        <button class="btn sm danger" data-b="del">删除</button>
+        <span class="hint" id="u-batch-msg"></span>
+      </div>
+      <div style="overflow-x:auto"><table class="adm" id="u-table"></table></div>
+    </div>
+  </div>
+
+  <div id="p-rooms" class="adm-panel">
+    <div class="adm-card">
+      <div class="field"><label></label><div class="row-actions"><button class="btn sm" id="rooms-refresh">🔄 刷新</button><span class="hint" id="rooms-msg"></span></div></div>
+      <div style="overflow-x:auto"><table class="adm" id="rooms-table"></table></div>
+    </div>
+  </div>
+
+  <div id="p-redeem" class="adm-panel">
+    <div class="adm-card">
+      <div class="panel-title">生成兑换码</div>
+      <div class="field"><label>兑换码</label><input type="text" id="rc-code" placeholder="留空自动生成"></div>
+      <div class="field"><label>金币</label><input type="number" id="rc-gold" value="100"></div>
+      <div class="field"><label>经验</label><input type="number" id="rc-exp" value="50"></div>
+      <div class="field"><label>道具ID</label><input type="number" id="rc-item" value="0"><span class="hint">0=不送道具</span></div>
+      <div class="field"><label>可用次数</label><input type="number" id="rc-max" value="1"></div>
+      <div class="field"><label>过期时间</label><input type="text" id="rc-expire" placeholder="yyyy-MM-ddTHH:mm，留空不过期"></div>
+      <div class="field"><label>备注</label><input type="text" id="rc-note"></div>
+      <div class="field"><label></label><button class="btn primary" id="rc-create">生成</button><span class="hint" id="rc-msg"></span></div>
+      <div class="panel-title" style="margin-top:14px">现有兑换码</div>
+      <div style="overflow-x:auto"><table class="adm" id="rc-table"></table></div>
+    </div>
+  </div>
+
+  <div id="p-tickets" class="adm-panel">
+    <div class="adm-card">
+      <div class="field"><label>状态</label><select id="tk-filter"><option value="OPEN">待处理</option><option value="REPLIED">已回复</option><option value="CLOSED">已关闭</option><option value="ALL">全部</option></select>
+        <label style="width:auto;margin-left:8px">分类</label><select id="tk-catf"><option value="">全部</option><option>问题</option><option>建议</option><option>举报</option><option>其他</option></select>
+        <button class="btn sm" id="tk-refresh">刷新</button></div>
+      <div id="tk-list"></div>
+    </div>
+  </div>
+
+  <div id="p-forum" class="adm-panel">
+    <div class="adm-card">
+      <div class="panel-title">论坛管理</div>
+      <div class="hint">置顶 / 隐藏 / 删除帖子（含已隐藏的）。</div>
+      <div class="field"><label></label><div class="row-actions"><button class="btn sm" id="forum-refresh">🔄 刷新</button></div></div>
+      <div style="overflow-x:auto"><table class="adm" id="forum-table"></table></div>
+    </div>
+  </div>
+
+  <div id="p-ops" class="adm-panel">
+    <div class="adm-card">
+      <div class="panel-title">运维工具</div>
+      <div class="hint">在线用户、数据导出、批量运维。</div>
+      <div class="field"><label>在线用户</label><div class="row-actions"><button class="btn" id="ops-online">🔄 刷新在线</button></div></div>
+      <div id="ops-online-box" class="hint" style="margin:6px 0"></div>
+      <div class="field"><label>导出</label><div class="row-actions"><button class="btn" id="ops-export-users">⬇️ 导出用户 CSV</button></div></div>
+      <div class="field"><label>危险操作</label><div class="row-actions"><button class="btn danger" id="ops-end-all">⏹ 强制结束全部对局</button></div></div>
+      <div class="hint" id="ops-msg"></div>
+    </div>
+  </div>
+
+  <div id="p-server" class="adm-panel">
+    <div class="adm-card">
+      <div class="panel-title">服务器控制</div>
+      <div class="hint">⚠️ 危险操作，仅管理员。重启依赖 start.bat 的守护循环。</div>
+      <div class="field"><label>重启服务器</label><div class="row-actions"><button class="btn" id="srv-restart">🔄 重启</button></div></div>
+      <div class="field"><label>关闭服务器</label><div class="row-actions"><button class="btn danger" id="srv-shutdown">⏻ 关闭</button></div></div>
+      <div class="hint" id="srv-status"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/admin.js"></script>
+</body>
+</html>

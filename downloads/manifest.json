@@ -1,0 +1,104 @@
+{
+  "updated": "2026-10-04",
+  "banner": "v2.0.0 全新界面 2.0 已发布：全新外壳、13 套主题、旁白与组队增强。网页 / PWA 始终最新，桌面安装包与移动端见下方。",
+  "items": [
+    {
+      "platform": "server-android",
+      "label": "安卓版服务端（手机当主机）",
+      "icon": "📡",
+      "os": "Android 7.0+",
+      "arch": "arm64-v8a",
+      "version": "1.0.0",
+      "file": "werewolf-server-1.0.0-android-arm64.apk",
+      "note": "装上手机就是服务器：点「启动服务」后把显示的局域网地址发给朋友，同一 WiFi 用浏览器连上即可开黑。首次启动需解包运行时（约 1-3 分钟、约 210MB）。注意：与官方 Termux 不能共存。"
+    },
+    {
+      "platform": "server-windows",
+      "label": "Windows 版服务端（安装包）",
+      "icon": "🖥️",
+      "os": "Windows 10 / 11",
+      "arch": "x64",
+      "version": "1.0.0",
+      "file": "werewolf-server-setup-1.0.0-win64.exe",
+      "note": "推荐给普通 Windows 玩家：双击安装（免管理员、装到用户目录），开始菜单/桌面直接启动服务端。自带 Java 21，目标机无需安装 Java；首次启动自动生成本机证书并打印局域网地址。"
+    },
+    {
+      "platform": "server-windows-portable",
+      "label": "Windows 版服务端（便携版）",
+      "icon": "📦",
+      "os": "Windows 10 / 11",
+      "arch": "x64",
+      "version": "1.0.0",
+      "file": "werewolf-server-1.0.0-windows-x64.zip",
+      "note": "免安装绿色版：解压后双击 start.bat 即可开服，不写注册表、不装服务，适合放 U 盘随身带或丢到常开的机器上。同样自带 Java 21 运行时。"
+    },
+    {
+      "platform": "server-linux",
+      "label": "Linux 版服务端",
+      "icon": "🐧",
+      "os": "Linux x64",
+      "arch": "x64",
+      "version": "1.0.0",
+      "file": "werewolf-server-1.0.0-linux-x64.tar.gz",
+      "note": "内置 Java 21，解压后 ./start.sh 即可开服，目标机无需安装 Java。适合 VPS / 台式机 / NAS 常驻开服（包内含 systemd 安装脚本与公网反代指引）。"
+    },
+    {
+      "platform": "windows",
+      "label": "Windows 桌面版",
+      "icon": "🖥️",
+      "os": "Windows 10 / 11",
+      "arch": "x64",
+      "version": "2.0.0",
+      "file": "werewolf-setup-2.0.0-win64.exe",
+      "note": "v2.0.0 安装包（NSIS，含全部新界面与主题）。下载后双击安装；如服务器证书为自签，首次连接点「高级→继续访问」"
+    },
+    {
+      "platform": "pwa",
+      "label": "网页 / PWA 安装（推荐）",
+      "icon": "🌐",
+      "os": "手机 / 平板 / 电脑通用",
+      "arch": "免下载",
+      "version": "",
+      "file": "",
+      "note": "用浏览器打开本站，地址栏右侧或菜单里选『安装 / 添加到主屏幕』即可像 App 一样使用并离线打开",
+      "url": "/"
+    },
+    {
+      "platform": "android",
+      "label": "Android 版",
+      "icon": "🤖",
+      "os": "Android 8.0+",
+      "arch": "PWA / APK",
+      "version": "",
+      "file": "",
+      "note": "推荐用 Chrome 打开本站并『安装应用』（PWA，免下载）。独立 APK 需 Android Studio 环境：Capacitor 工程已就绪，见客户端工程说明"
+    },
+    {
+      "platform": "ios",
+      "label": "iOS 版",
+      "icon": "📱",
+      "os": "iOS 14+",
+      "version": "",
+      "file": "",
+      "note": "用 Safari 打开本站，点『分享 → 添加到主屏幕』即可以 App 形式使用"
+    },
+    {
+      "platform": "macos",
+      "label": "macOS 版",
+      "icon": "💻",
+      "os": "macOS 12+",
+      "version": "",
+      "file": "",
+      "note": "v2.0.0 需在 macOS 上构建：克隆客户端工程后运行 npm run dist:mac（生成 dmg）。此前可先用网页 / PWA"
+    },
+    {
+      "platform": "linux",
+      "label": "Linux 版",
+      "icon": "🐧",
+      "os": "主流发行版",
+      "version": "2.0.0",
+      "file": "werewolf-client-2.0.0-linux-x64.tar.gz",
+      "note": "v2.0.0 便携版（tar.gz）：解压后运行 狼人杀 或 werewolf-client。适用各主流发行版（Ubuntu/Debian/Fedora/Arch）"
+    }
+  ]
+}

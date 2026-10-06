@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+def keystoreFile = rootProject.file('keystore/werewolf-server.jks')
+
+android {
+    namespace 'com.werewolf.server'
+    compileSdk 34
+
+    defaultConfig {
+        // 关键：applicationId 必须是 com.termux，这样应用私有目录
+        // /data/data/com.termux/files/usr 才与内置 Android 版 JDK 里硬编码的
+        // TERMUX_PREFIX 前缀一致（否则 JDK 自带的 DT_RUNPATH 会找不到 libjvm.so）。
+        applicationId "com.termux"
+        minSdk 24
+        // 关键：targetSdk 必须 <= 28，Android 10+ 才允许从应用私有目录 execve 原生可执行文件（W^X 限制）。
+        targetSdk 28
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile keystoreFile
+            storePassword 'werewolf'
+            keyAlias 'werewolf'
+            keyPassword 'werewolf'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    androidResources {
+        // 运行时包已经是压缩格式，直接存储，避免安装时重复解压/压缩
+        noCompress 'zip', 'jar'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

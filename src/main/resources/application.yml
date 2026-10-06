@@ -1,0 +1,94 @@
+server:
+  port: 11111
+
+spring:
+  application:
+    name: werewolf-online
+  datasource:
+    # AUTO_SERVER=FALSE：避免开启 H2 自动混合模式带来的并发隐患
+    url: jdbc:h2:file:./data/werewolf;AUTO_SERVER=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 10000
+      leak-detection-threshold: 20000
+  jpa:
+    hibernate:
+      # 说明：首期用 update 以便首次启动自动建表；生产环境建议改为 validate（勿在首次启动前改，否则会因缺表启动失败）
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 50
+          order_inserts: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+logging:
+  level:
+    com.werewolf: info
+
+# ===== 语音：SenseVoice(ASR) + Kokoro(TTS) 本地微服务，用于匿名 AI 局的同语种声纹中继与逐句发声 =====
+voice:
+  enabled: ${VOICE_ENABLED:false}          # 总开关；start.bat 在拉起两服务后置 true
+  allow-voice-mode: true
+  asr-url: ${VOICE_ASR_URL:http://127.0.0.1:5001}
+  tts-url: ${VOICE_TTS_URL:http://127.0.0.1:5002}
+  sample-rate: 16000
+  service-timeout-seconds: 25
+  # 每座位固定 Kokoro 中文音色（AI/真人同座位用同一音色，抹平差异以藏 AI）；Kokoro-82M 实存 8 个 zh 音色循环使用
+  voices:
+    - zf_xiaobei
+    - zm_yunjian
+    - zf_xiaoxiao
+    - zm_yunxi
+    - zf_xiaoni
+    - zm_yunyang
+    - zf_xiaoyi
+    - zm_yunxia
+  # AI 逐句发声节奏（句间停顿 = 字数×每字时长 + 随机 gap）——已调快
+  ms-per-char: 150
+  gap-min-ms: 300
+  gap-max-ms: 900
+  lead-in-min-ms: 120
+  lead-in-max-ms: 500
+  max-sentences-per-turn: 16
+  # 朗读字数上限：与 VoiceProperties 默认值(600)保持一致。320 会把长发言的朗读截断
+  #（“别人没说完就被截断”），这里不再用较小的 yml 值覆盖代码默认值。
+  max-speech-chars: 600
+  # 服务端能量 VAD 断句（放宽静音阈值，减少把一句话切碎，提升识别准确度）
+  vad-rms-threshold: 0.02
+  vad-silence-ms: 1000
+  vad-max-speech-ms: 15000
+  vad-min-speech-ms: 300
+  # 匿名伪装人格（对外固定昵称/头像，隐藏 AI）
+  anon-names: ["1号","2号","3号","4号","5号","6号","7号","8号","9号","10号","11号","12号","13号","14号","15号","16号"]
+  anon-avatars: [5,12,3,9,15,6,2,11,4,8,13,1,10,14,7,16]
+  anon-nick-color: "#c7cbd6"
+  anon-frame-color: "#2a2f3a"
+
+# ===== 后台管理员 =====
+admin:
+  # 逗号分隔的用户名；这些已注册用户启动时被置为管理员。首个注册者无论如何都会自动成为管理员。
+  bootstrap-usernames: ${ADMIN_BOOTSTRAP_USERNAMES:}
+
+---
+# ===== HTTPS 配置档：以 --spring.profiles.active=https 启动即启用 TLS =====
+# 自签证书在 config/keystore.p12（start.bat 缺失时自动生成）。浏览器首次访问需信任该证书一次。
+spring:
+  config:
+    activate:
+      on-profile: https
+server:
+  port: 11111
+  ssl:
+    key-store: ${SSL_KEYSTORE:file:./config/keystore.p12}
+    key-store-type: PKCS12
+    key-store-password: ${SSL_PASSWORD:changeit}
+    key-alias: ${SSL_ALIAS:werewolf}

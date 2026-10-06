@@ -1,0 +1,464 @@
+@charset "UTF-8";
+/* ==========================================================================
+   themes.css · 主题令牌层（在 style.css 之后加载，只覆盖变量，不碰结构）
+   --------------------------------------------------------------------------
+   新增主题三步：
+     1) 在本文件加一段 body.theme-<id> { 令牌… }
+     2) 在 js/appearance.js 的 WW_THEMES 注册 {id,name,icon,swatch,light?}
+     3) 完事——选择器、快捷键 T、?theme=<id> 深链自动生效
+   约定：
+     · night 是 style.css 的 :root 默认值，不需要类；其余主题一律 body.theme-<id>
+     · 浅色主题必须标 light:true（appearance.js 会给 body 加 .theme-light，
+       供 .layer 遮罩、代码块等“按明暗而非按主题”处理的场景使用）
+     · 只改颜色/渐变/阴影类令牌，不要改 --sp-* / --fs-*（那是字号与密度档位的事）
+   ========================================================================== */
+
+/* 通用：遮罩与强调环按明暗走，避免浅色主题上盖一层黑纱 */
+:root { --overlay: rgba(4, 7, 14, .68); }
+body.theme-light { --overlay: rgba(30, 40, 70, .38); }
+.layer { background: var(--overlay); }
+
+/* ============================ 白昼（自 style.css 迁入） ============================ */
+body.theme-day {
+  --overlay: rgba(30, 40, 70, .34);
+}
+
+/* ============================ 血月 ============================ */
+body.theme-bloodmoon {
+  --bg-deep: #150a10;
+  --bg-void: #0c0509;
+  --bg-panel: #24131c;
+  --bg-panel-2: #2d1822;
+  --bg-raise: #3a202b;
+  --bg-sunken: rgba(12, 5, 9, .6);
+  --border-dim: #4a2733;
+  --border-soft: #3a1f29;
+  --border-strong: #6b3646;
+
+  --text-main: #f2dfe4;
+  --text-dim: #b98d99;
+  --text-faint: #7d5a64;
+
+  --accent: #e0526a;
+  --accent-dim: #a83a4c;
+  --accent-soft: rgba(224, 82, 106, .16);
+  --accent-2: #f0b06b;
+  --accent-2-soft: rgba(240, 176, 107, .16);
+  --blood: #ff4d6d;
+  --blood-soft: rgba(255, 77, 109, .18);
+  --moon: #ffd9df;
+  --green: #5fae7c;
+  --green-soft: rgba(95, 174, 124, .18);
+
+  --grad-panel: linear-gradient(168deg, #2e1822 0%, #24131c 55%, #1a0e14 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(58, 32, 43, .72), rgba(36, 19, 28, .72));
+  --grad-accent: linear-gradient(180deg, #ef6b81 0%, #d6425c 50%, #a92f45 100%);
+  --grad-accent-h: linear-gradient(180deg, #ff8496 0%, #e0526a 50%, #b8384f 100%);
+  --grad-moon: linear-gradient(135deg, #f0b06b, #c9744a);
+  --grad-page: radial-gradient(1200px 620px at 14% -8%, rgba(224, 82, 106, .2), transparent 62%),
+               radial-gradient(900px 520px at 94% 6%, rgba(240, 176, 107, .12), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(224, 82, 106, .32), 0 6px 22px rgba(224, 82, 106, .24);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(224, 82, 106, .62);
+}
+body.theme-bloodmoon .moon-bg { background: radial-gradient(circle at 38% 36%, rgba(224, 82, 106, .22), rgba(224, 82, 106, .06) 42%, transparent 68%); }
+
+/* ============================ 深海 ============================ */
+body.theme-deepsea {
+  --bg-deep: #04121c;
+  --bg-void: #020a11;
+  --bg-panel: #0b2434;
+  --bg-panel-2: #0f2d40;
+  --bg-raise: #163a51;
+  --bg-sunken: rgba(2, 12, 19, .62);
+  --border-dim: #1d4a64;
+  --border-soft: #173c52;
+  --border-strong: #2a6685;
+
+  --text-main: #d5ecf5;
+  --text-dim: #7fa9bd;
+  --text-faint: #4f7a8f;
+
+  --accent: #34c3d9;
+  --accent-dim: #2295a8;
+  --accent-soft: rgba(52, 195, 217, .15);
+  --accent-2: #7aa8ff;
+  --accent-2-soft: rgba(122, 168, 255, .16);
+  --blood: #e05a6b;
+  --blood-soft: rgba(224, 90, 107, .18);
+  --moon: #dff6ff;
+  --green: #45b98a;
+  --green-soft: rgba(69, 185, 138, .18);
+
+  --grad-panel: linear-gradient(168deg, #103247 0%, #0b2434 55%, #071a26 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(22, 58, 81, .7), rgba(11, 36, 52, .7));
+  --grad-accent: linear-gradient(180deg, #4bd8ec 0%, #2fb3c9 50%, #1d8b9e 100%);
+  --grad-accent-h: linear-gradient(180deg, #63e6f8 0%, #34c3d9 50%, #2295a8 100%);
+  --grad-moon: linear-gradient(135deg, #7aa8ff, #4f7fd6);
+  --grad-page: radial-gradient(1200px 620px at 10% -6%, rgba(52, 195, 217, .18), transparent 60%),
+               radial-gradient(900px 520px at 96% 8%, rgba(122, 168, 255, .12), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(52, 195, 217, .3), 0 6px 22px rgba(52, 195, 217, .22);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(52, 195, 217, .6);
+}
+body.theme-deepsea .moon-bg { background: radial-gradient(circle at 38% 36%, rgba(223, 246, 255, .14), rgba(52, 195, 217, .06) 44%, transparent 68%); }
+
+/* ============================ 苔原 ============================ */
+body.theme-moss {
+  --bg-deep: #0c1410;
+  --bg-void: #060c09;
+  --bg-panel: #17251d;
+  --bg-panel-2: #1c2d24;
+  --bg-raise: #253a2e;
+  --bg-sunken: rgba(7, 14, 11, .6);
+  --border-dim: #2c4739;
+  --border-soft: #23392e;
+  --border-strong: #3d6350;
+
+  --text-main: #dbeadd;
+  --text-dim: #8bab96;
+  --text-faint: #5b7a68;
+
+  --accent: #d8b25c;
+  --accent-dim: #a98a3f;
+  --accent-soft: rgba(216, 178, 92, .15);
+  --accent-2: #7fd0a8;
+  --accent-2-soft: rgba(127, 208, 168, .15);
+  --blood: #c9524f;
+  --blood-soft: rgba(201, 82, 79, .18);
+  --moon: #eaf5e6;
+  --green: #56b87d;
+  --green-soft: rgba(86, 184, 125, .18);
+
+  --grad-panel: linear-gradient(168deg, #1e3227 0%, #17251d 55%, #101a15 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(37, 58, 46, .7), rgba(23, 37, 29, .7));
+  --grad-accent: linear-gradient(180deg, #e6c575 0%, #d8b25c 50%, #a98a3f 100%);
+  --grad-accent-h: linear-gradient(180deg, #f0d489 0%, #dfba66 50%, #b8984a 100%);
+  --grad-moon: linear-gradient(135deg, #7fd0a8, #4f9d78);
+  --grad-page: radial-gradient(1200px 620px at 12% -8%, rgba(127, 208, 168, .14), transparent 60%),
+               radial-gradient(900px 520px at 96% 4%, rgba(216, 178, 92, .12), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(216, 178, 92, .3), 0 6px 22px rgba(216, 178, 92, .2);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(216, 178, 92, .6);
+}
+
+/* ============================ 赛博霓虹 ============================ */
+body.theme-neon {
+  --bg-deep: #07060f;
+  --bg-void: #030209;
+  --bg-panel: #140f26;
+  --bg-panel-2: #1a1330;
+  --bg-raise: #241a42;
+  --bg-sunken: rgba(6, 4, 14, .66);
+  --border-dim: #37275f;
+  --border-soft: #2a1e4b;
+  --border-strong: #523a8c;
+
+  --text-main: #e6e2ff;
+  --text-dim: #9c8fd0;
+  --text-faint: #6a5f95;
+
+  --accent: #ff3fa4;
+  --accent-dim: #c62c7d;
+  --accent-soft: rgba(255, 63, 164, .16);
+  --accent-2: #22e0ff;
+  --accent-2-soft: rgba(34, 224, 255, .14);
+  --blood: #ff2d55;
+  --blood-soft: rgba(255, 45, 85, .18);
+  --moon: #f2e9ff;
+  --green: #2ee6a8;
+  --green-soft: rgba(46, 230, 168, .16);
+
+  --grad-panel: linear-gradient(168deg, #1c1436 0%, #140f26 55%, #0d0a1a 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(36, 26, 66, .72), rgba(20, 15, 38, .72));
+  --grad-accent: linear-gradient(180deg, #ff64b8 0%, #ff3fa4 50%, #d02a84 100%);
+  --grad-accent-h: linear-gradient(180deg, #ff8ac9 0%, #ff55ae 50%, #e03492 100%);
+  --grad-moon: linear-gradient(135deg, #22e0ff, #7a5cff);
+  --grad-page: radial-gradient(1100px 600px at 10% -8%, rgba(34, 224, 255, .16), transparent 58%),
+               radial-gradient(900px 520px at 96% 6%, rgba(255, 63, 164, .18), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(255, 63, 164, .34), 0 6px 26px rgba(255, 63, 164, .28);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(34, 224, 255, .66);
+}
+body.theme-neon .moon-bg { background: radial-gradient(circle at 38% 36%, rgba(34, 224, 255, .18), rgba(255, 63, 164, .08) 44%, transparent 68%); }
+
+/* ============================ 羊皮纸 ============================ */
+body.theme-parchment {
+  --bg-deep: #f2e7d0;
+  --bg-void: #e6d8ba;
+  --bg-panel: #fbf5e6;
+  --bg-panel-2: #f6edd8;
+  --bg-raise: #efe2c6;
+  --bg-sunken: rgba(226, 211, 178, .5);
+  --border-dim: #d3bf95;
+  --border-soft: #e0d0ac;
+  --border-strong: #b99f6d;
+
+  --text-main: #3b2f1c;
+  --text-dim: #6d5b3e;
+  --text-faint: #96835f;
+
+  --accent: #9a5b1e;
+  --accent-dim: #b07334;
+  --accent-soft: rgba(154, 91, 30, .12);
+  --accent-2: #4a6b8a;
+  --accent-2-soft: rgba(74, 107, 138, .12);
+  --blood: #9e2b2b;
+  --blood-soft: rgba(158, 43, 43, .12);
+  --moon: #4a3c25;
+  --green: #3f7a4a;
+  --green-soft: rgba(63, 122, 74, .14);
+
+  --grad-panel: linear-gradient(168deg, #fdf8ec 0%, #f8f0dd 60%, #f2e7d0 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(253, 248, 236, .86), rgba(242, 231, 208, .86));
+  --grad-page: radial-gradient(1100px 600px at 10% -10%, rgba(74, 107, 138, .1), transparent 60%),
+               radial-gradient(900px 500px at 95% 0%, rgba(154, 91, 30, .1), transparent 58%),
+               var(--bg-deep);
+  --grad-accent: linear-gradient(180deg, #b07334 0%, #8c5219 100%);
+  --grad-accent-h: linear-gradient(180deg, #c08342 0%, #9a5b1e 100%);
+
+  --hair: inset 0 1px 0 rgba(255, 255, 255, .7);
+  --shadow-sm: 0 1px 3px rgba(80, 60, 20, .1);
+  --shadow-md: 0 6px 20px rgba(80, 60, 20, .12);
+  --shadow-lg: 0 18px 44px rgba(80, 60, 20, .18);
+  --glow-accent: 0 0 0 1px rgba(154, 91, 30, .3), 0 6px 18px rgba(154, 91, 30, .16);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(154, 91, 30, .55);
+  --overlay: rgba(60, 44, 18, .38);
+}
+body.theme-parchment .btn-primary { color: #fdf6e6; }
+body.theme-parchment .seg-btn.active, body.theme-parchment .level-badge { color: #fdf6e6; }
+
+/* ============================ 石墨 ============================ */
+body.theme-slate {
+  --bg-deep: #14161a;
+  --bg-void: #0d0e11;
+  --bg-panel: #1f2329;
+  --bg-panel-2: #262b32;
+  --bg-raise: #313741;
+  --bg-sunken: rgba(12, 13, 16, .6);
+  --border-dim: #3a424e;
+  --border-soft: #2e353f;
+  --border-strong: #4e596a;
+
+  --text-main: #dfe4ec;
+  --text-dim: #939dab;
+  --text-faint: #646d7a;
+
+  --accent: #5aa9ff;
+  --accent-dim: #3f82c9;
+  --accent-soft: rgba(90, 169, 255, .15);
+  --accent-2: #a4b6cf;
+  --accent-2-soft: rgba(164, 182, 207, .14);
+  --blood: #e05a6b;
+  --blood-soft: rgba(224, 90, 107, .18);
+  --moon: #eaf1fb;
+  --green: #4fb98a;
+  --green-soft: rgba(79, 185, 138, .18);
+
+  --grad-panel: linear-gradient(168deg, #272c34 0%, #1f2329 55%, #181b20 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(49, 55, 65, .7), rgba(31, 35, 41, .7));
+  --grad-accent: linear-gradient(180deg, #74baff 0%, #5aa9ff 50%, #3f82c9 100%);
+  --grad-accent-h: linear-gradient(180deg, #8ac6ff 0%, #66b3ff 50%, #4a8fd8 100%);
+  --grad-moon: linear-gradient(135deg, #a4b6cf, #6d8bb0);
+  --grad-page: radial-gradient(1200px 620px at 12% -8%, rgba(90, 169, 255, .14), transparent 60%),
+               radial-gradient(900px 520px at 96% 4%, rgba(164, 182, 207, .1), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(90, 169, 255, .3), 0 6px 22px rgba(90, 169, 255, .2);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(90, 169, 255, .6);
+}
+
+/* ============================ 樱粉 ============================ */
+body.theme-sakura {
+  --bg-deep: #fbf1f4;
+  --bg-void: #f4e2e8;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #fdf3f6;
+  --bg-raise: #f8e4ea;
+  --bg-sunken: rgba(244, 226, 232, .55);
+  --border-dim: #eccdd6;
+  --border-soft: #f3dee4;
+  --border-strong: #dcaebc;
+
+  --text-main: #3c2a30;
+  --text-dim: #7c5f68;
+  --text-faint: #a88d95;
+
+  --accent: #d9527f;
+  --accent-dim: #e0709a;
+  --accent-soft: rgba(217, 82, 127, .12);
+  --accent-2: #8a6fd0;
+  --accent-2-soft: rgba(138, 111, 208, .12);
+  --blood: #c33a5e;
+  --blood-soft: rgba(195, 58, 94, .12);
+  --moon: #5a3f48;
+  --green: #46996a;
+  --green-soft: rgba(70, 153, 106, .14);
+
+  --grad-panel: linear-gradient(168deg, #ffffff 0%, #fdf5f8 60%, #faeef2 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(255, 255, 255, .9), rgba(250, 238, 242, .9));
+  --grad-page: radial-gradient(1100px 600px at 10% -10%, rgba(138, 111, 208, .12), transparent 60%),
+               radial-gradient(900px 500px at 95% 0%, rgba(217, 82, 127, .12), transparent 58%),
+               var(--bg-deep);
+  --grad-accent: linear-gradient(180deg, #e56d95 0%, #cf4674 100%);
+  --grad-accent-h: linear-gradient(180deg, #ef7fa5 0%, #d9527f 100%);
+
+  --hair: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --shadow-sm: 0 1px 3px rgba(120, 60, 80, .08);
+  --shadow-md: 0 6px 20px rgba(120, 60, 80, .1);
+  --shadow-lg: 0 18px 44px rgba(120, 60, 80, .16);
+  --glow-accent: 0 0 0 1px rgba(217, 82, 127, .28), 0 6px 18px rgba(217, 82, 127, .18);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(217, 82, 127, .55);
+  --overlay: rgba(80, 40, 55, .34);
+}
+body.theme-sakura .btn-primary, body.theme-sakura .seg-btn.active, body.theme-sakura .level-badge { color: #fff5f8; }
+
+/* ============================ 极光 ============================ */
+body.theme-aurora {
+  --bg-deep: #060d18;
+  --bg-void: #03070f;
+  --bg-panel: #0f1c30;
+  --bg-panel-2: #13243c;
+  --bg-raise: #1b3050;
+  --bg-sunken: rgba(4, 10, 20, .64);
+  --border-dim: #24405f;
+  --border-soft: #1c3350;
+  --border-strong: #33587f;
+
+  --text-main: #dceaf6;
+  --text-dim: #86a5c0;
+  --text-faint: #557494;
+
+  --accent: #45e0b8;
+  --accent-dim: #2fb192;
+  --accent-soft: rgba(69, 224, 184, .14);
+  --accent-2: #9b7dff;
+  --accent-2-soft: rgba(155, 125, 255, .16);
+  --blood: #e05a7a;
+  --blood-soft: rgba(224, 90, 122, .18);
+  --moon: #e6f6ff;
+  --green: #45e0b8;
+  --green-soft: rgba(69, 224, 184, .16);
+
+  --grad-panel: linear-gradient(168deg, #16294a 0%, #0f1c30 55%, #0a1424 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(27, 48, 80, .7), rgba(15, 28, 48, .7));
+  --grad-accent: linear-gradient(180deg, #5cf0c9 0%, #45e0b8 50%, #2fb192 100%);
+  --grad-accent-h: linear-gradient(180deg, #74f5d6 0%, #4fe6bf 50%, #36bf9d 100%);
+  --grad-moon: linear-gradient(135deg, #9b7dff, #45e0b8);
+  --grad-page: radial-gradient(1100px 600px at 8% -10%, rgba(155, 125, 255, .18), transparent 58%),
+               radial-gradient(900px 520px at 96% 4%, rgba(69, 224, 184, .16), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(69, 224, 184, .3), 0 6px 24px rgba(69, 224, 184, .22);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(155, 125, 255, .62);
+}
+body.theme-aurora .moon-bg { background: radial-gradient(circle at 38% 36%, rgba(155, 125, 255, .2), rgba(69, 224, 184, .08) 44%, transparent 68%); }
+
+/* ============================ 炭火 ============================ */
+body.theme-ember {
+  --bg-deep: #120c08;
+  --bg-void: #0a0604;
+  --bg-panel: #1e140e;
+  --bg-panel-2: #261912;
+  --bg-raise: #33231a;
+  --bg-sunken: rgba(10, 6, 4, .62);
+  --border-dim: #40291d;
+  --border-soft: #322017;
+  --border-strong: #5b3a27;
+
+  --text-main: #f0e2d5;
+  --text-dim: #ad9280;
+  --text-faint: #7a6252;
+
+  --accent: #ff8b3d;
+  --accent-dim: #cc6a28;
+  --accent-soft: rgba(255, 139, 61, .15);
+  --accent-2: #ffd166;
+  --accent-2-soft: rgba(255, 209, 102, .14);
+  --blood: #e04a3d;
+  --blood-soft: rgba(224, 74, 61, .18);
+  --moon: #ffe9d5;
+  --green: #6fae6a;
+  --green-soft: rgba(111, 174, 106, .18);
+
+  --grad-panel: linear-gradient(168deg, #2a1b12 0%, #1e140e 55%, #150e09 100%);
+  --grad-panel-soft: linear-gradient(168deg, rgba(51, 35, 26, .72), rgba(30, 20, 14, .72));
+  --grad-accent: linear-gradient(180deg, #ffa15c 0%, #ff8b3d 50%, #cc6a28 100%);
+  --grad-accent-h: linear-gradient(180deg, #ffb478 0%, #ff9a52 50%, #d9762f 100%);
+  --grad-moon: linear-gradient(135deg, #ffd166, #ff8b3d);
+  --grad-page: radial-gradient(1100px 620px at 12% -8%, rgba(255, 139, 61, .18), transparent 60%),
+               radial-gradient(900px 520px at 94% 6%, rgba(255, 209, 102, .1), transparent 58%),
+               var(--bg-deep);
+  --glow-accent: 0 0 0 1px rgba(255, 139, 61, .32), 0 6px 22px rgba(255, 139, 61, .24);
+  --ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px rgba(255, 139, 61, .62);
+}
+body.theme-ember .btn-primary, body.theme-ember .seg-btn.active, body.theme-ember .level-badge { color: #2b1405; }
+
+/* ============================ 高对比（无障碍） ============================ */
+body.theme-mono {
+  --bg-deep: #000000;
+  --bg-void: #000000;
+  --bg-panel: #0a0a0a;
+  --bg-panel-2: #141414;
+  --bg-raise: #1f1f1f;
+  --bg-sunken: #050505;
+  --border-dim: #6e6e6e;
+  --border-soft: #4a4a4a;
+  --border-strong: #a3a3a3;
+
+  --text-main: #ffffff;
+  --text-dim: #d4d4d4;
+  --text-faint: #ababab;
+
+  --accent: #ffd400;
+  --accent-dim: #ffe066;
+  --accent-soft: rgba(255, 212, 0, .18);
+  --accent-2: #66e0ff;
+  --accent-2-soft: rgba(102, 224, 255, .18);
+  --blood: #ff6b6b;
+  --blood-soft: rgba(255, 107, 107, .2);
+  --moon: #ffffff;
+  --green: #5cff9d;
+  --green-soft: rgba(92, 255, 157, .18);
+
+  --grad-panel: #0a0a0a;
+  --grad-panel-soft: #0a0a0a;
+  --grad-accent: #ffd400;
+  --grad-accent-h: #ffe066;
+  --grad-moon: #66e0ff;
+  --grad-page: #000000;
+  --hair: none;
+  --shadow-sm: 0 0 0 1px #6e6e6e;
+  --shadow-md: 0 0 0 1px #a3a3a3;
+  --shadow-lg: 0 0 0 2px #ffffff;
+  --glow-accent: 0 0 0 2px #ffd400;
+  --ring: 0 0 0 3px #000000, 0 0 0 6px #ffd400;
+  --overlay: rgba(0, 0, 0, .86);
+}
+body.theme-mono .btn-primary, body.theme-mono .seg-btn.active, body.theme-mono .level-badge { color: #000; font-weight: 700; }
+body.theme-mono .moon-bg { display: none; }
+body.theme-mono .card, body.theme-mono .tile, body.theme-mono .seat, body.theme-mono .gseat { border-width: 2px; }
+
+/* ============================ 外观档位：字号 / 密度 / 动效 ============================ */
+/* 全部通过覆盖令牌实现，组件无需感知（组件一律用 var(--fs-*) / var(--sp-*)） */
+body.fs-sm {
+  --fs-tiny: 10px; --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 14px;
+  --fs-xl: 17px; --fs-2xl: 21px; --fs-3xl: 26px; --fs-4xl: 34px;
+}
+body.fs-lg {
+  --fs-tiny: 12px; --fs-xs: 13px; --fs-sm: 15px; --fs-md: 16px; --fs-lg: 18px;
+  --fs-xl: 22px; --fs-2xl: 27px; --fs-3xl: 35px; --fs-4xl: 47px;
+}
+body.dense {
+  --sp-3: 10px; --sp-4: 12px; --sp-5: 14px; --sp-6: 16px; --sp-7: 22px; --sp-8: 26px; --sp-9: 34px; --sp-10: 44px;
+  --r: 11px; --r-lg: 13px; --r-xl: 16px;
+  --top-h: 48px; --nav-h: 54px;
+}
+body.dense .card { padding: var(--sp-4); }
+body.dense .feed-item, body.dense .fr-item { padding: 6px var(--sp-3); }
+
+/* 手动“减少动效”：与系统偏好叠加，任意为真即生效 */
+body.no-motion *, body.no-motion *::before, body.no-motion *::after {
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important;
+}
+body.no-motion .moon-bg { animation: none; }

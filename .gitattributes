@@ -1,0 +1,25 @@
+# 行尾规范化：Windows 脚本必须 CRLF，Linux 脚本必须 LF，其余文件按原样保存。
+# （本仓库同时含 .bat/.ps1/.nsi 与 .sh，跨平台克隆时容易被 autocrlf 改坏）
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+*.nsi  text eol=crlf
+*.sh   text eol=lf
+
+# 二进制文件：不做行尾转换，也不参与文本 diff
+*.jar   binary
+*.zip   binary
+*.apk   binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.wav   binary
+*.pcm   binary
+*.pdf   binary
+*.xlsx  binary
+*.docx  binary
+*.pptx  binary

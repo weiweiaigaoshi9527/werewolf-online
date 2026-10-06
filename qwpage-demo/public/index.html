@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>狼人杀 Online · 虚拟主机版 在线试玩</title>
+<link rel="stylesheet" href="/css/themes.css">
+<link rel="stylesheet" href="/css/demo.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">🐺 狼人杀 <small>ONLINE</small> <span class="demo-tag">虚拟主机版 · 在线试玩</span></div>
+    <div class="muted" id="persist-tag"></div>
+  </header>
+
+  <section id="join-pane" class="card">
+    <div style="text-align:center;font-size:44px">🌕</div>
+    <h2 style="text-align:center">月夜村庄 · 演示局</h2>
+    <p class="muted" style="text-align:center">6 人快局（2狼 · 预言家 · 守卫 · 2村民）· 你是 1 号，其余为 AI 托管<br>
+    完整版含 12 神职自由配板、警长竞选、白狼王自爆、双人组队、好友/排行榜/商城 VIP 等全部功能</p>
+    <div class="field"><input type="text" id="name" placeholder="你的昵称" maxlength="12"></div>
+    <button class="btn gold" id="btn-join" style="width:100%">进入演示局</button>
+    <div class="muted" style="margin-top:10px;text-align:center" id="results-line"></div>
+  </section>
+
+  <section id="game-pane" class="hidden">
+    <div class="phasebar">
+      <span class="phase-chip" id="g-phase">—</span>
+      <span class="muted" id="g-day"></span>
+      <span class="muted" id="g-hint"></span>
+    </div>
+    <div id="g-winline"></div>
+    <div class="game-grid">
+      <div class="card">
+        <div class="feed" id="g-feed"></div>
+        <div class="actbox" id="g-act"></div>
+      </div>
+      <div>
+        <div class="myrole" id="g-myrole"></div>
+        <div class="seats" id="g-seats"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="results-pane" class="card hidden">
+    <h3>📚 近期演示局战绩（Supabase 持久化）</h3>
+    <div id="results-box"></div>
+  </section>
+</div>
+<div id="toast"></div>
+<script src="/js/demo.js"></script>
+</body>
+</html>

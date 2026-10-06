@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>狼人杀 · 服务端安装指导</title>
+<style>
+  :root {
+    --bg-deep: #0d1117;
+    --bg-panel: #161b22;
+    --bg-panel-2: #1c2330;
+    --border-dim: #2a3140;
+    --text-main: #d7dde5;
+    --text-dim: #8b95a5;
+    --accent: #e8a33d;
+    --moon: #f0c674;
+    --green: #4f9d69;
+    --code-bg: #0b0f14;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg-deep);
+    color: var(--text-main);
+    font-family: system-ui, "Microsoft YaHei", "PingFang SC", sans-serif;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 20px 80px; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px;
+    background: rgba(13,17,23,.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .topbar .brand { font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+  .topbar .brand .sub { color: var(--accent); font-size: 12px; margin-left: 8px; letter-spacing: 1px; }
+  .topbar .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; text-decoration: none;
+    border: 1px solid var(--border-dim);
+    background: var(--bg-panel-2);
+    color: var(--text-main);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px; font-family: inherit;
+    transition: border-color .2s, color .2s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--moon); }
+
+  .doc {
+    margin-top: 26px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-dim);
+    border-radius: 14px;
+    padding: 30px 34px 38px;
+  }
+  #md-loading { text-align: center; color: var(--text-dim); padding: 60px 0; font-size: 14px; }
+  #md-error { color: #e07a86; padding: 24px 0; font-size: 14px; }
+
+  #md h1 {
+    font-size: 26px; margin: 0 0 6px; letter-spacing: 1px;
+    padding-bottom: 14px; border-bottom: 2px solid var(--accent);
+  }
+  #md h2 {
+    font-size: 20px; margin: 34px 0 12px; color: var(--moon);
+    padding-left: 12px; border-left: 4px solid var(--accent);
+  }
+  #md h3 { font-size: 16px; margin: 22px 0 8px; color: var(--text-main); }
+  #md p { margin: 10px 0; }
+  #md ul, #md ol { margin: 10px 0; padding-left: 26px; }
+  #md li { margin: 5px 0; }
+  #md a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+  #md a:hover { color: var(--moon); }
+  #md strong { color: #fff; }
+  #md code {
+    background: var(--code-bg);
+    border: 1px solid var(--border-dim);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    color: var(--moon);
+    word-break: break-all;
+  }
+  #md pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+  #md pre code {
+    background: none; border: none; padding: 0;
+    color: var(--text-main); font-size: 13px; word-break: normal;
+  }
+  #md hr {
+    border: none; border-top: 1px solid var(--border-dim); margin: 30px 0;
+  }
+  #md blockquote {
+    margin: 12px 0; padding: 8px 16px;
+    background: var(--bg-panel-2);
+    border-left: 4px solid var(--border-dim);
+    border-radius: 0 8px 8px 0;
+    color: var(--text-dim);
+  }
+  #md blockquote p { margin: 4px 0; }
+  @media (max-width: 640px) {
+    .doc { padding: 20px 16px 28px; }
+    .topbar .brand .sub { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">🐺 狼人杀<span class="sub">服务端安装指导</span></div>
+  <div class="spacer"></div>
+  <a class="btn" href="/">← 返回大厅</a>
+</div>
+
+<div class="wrap">
+  <div class="doc">
+    <div id="md-loading">正在加载安装文档…</div>
+    <div id="md"></div>
+  </div>
+</div>
+
+<script>
+// 轻量 Markdown 渲染（无外部依赖，仅覆盖文档所需语法）
+(function () {
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // 行内样式：先转义，再处理 code / 粗体 / 链接
+  function inline(text) {
+    var out = escapeHtml(text);
+    out = out.replace(/`([^`]+)`/g, function (_, c) { return '<code>' + c + '</code>'; });
+    out = out.replace(/\*\*([^*]+)\*\*/g, function (_, b) { return '<strong>' + b + '</strong>'; });
+    out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (_, t, u) {
+      var href = u.replace(/&amp;/g, '&');
+      return '<a href="' + href + '" target="_blank" rel="noopener">' + t + '</a>';
+    });
+    return out;
+  }
+
+  function render(md) {
+    var lines = md.replace(/\r\n?/g, '\n').split('\n');
+    var html = [];
+    var i = 0;
+
+    function isFence(line) { return /^```/.test(line.trim()); }
+
+    while (i < lines.length) {
+      var line = lines[i];
+
+      // 代码块
+      if (isFence(line)) {
+        var buf = [];
+        i++;
+        while (i < lines.length && !isFence(lines[i])) { buf.push(lines[i]); i++; }
+        i++; // 跳过结束围栏
+        html.push('<pre><code>' + escapeHtml(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+
+      // 空行
+      if (line.trim() === '') { i++; continue; }
+
+      // 分割线
+      if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { html.push('<hr>'); i++; continue; }
+
+      // 标题
+      var h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        var lv = h[1].length;
+        html.push('<h' + lv + '>' + inline(h[2].trim()) + '</h' + lv + '>');
+        i++;
+        continue;
+      }
+
+      // 引用块
+      if (/^\s*>\s?/.test(line)) {
+        var q = [];
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+          q.push(lines[i].replace(/^\s*>\s?/, ''));
+          i++;
+        }
+        html.push('<blockquote>' + render(q.join('\n')) + '</blockquote>');
+        continue;
+      }
+
+      // 列表（有序/无序，支持按缩进嵌套）
+      if (parseListItem(line)) {
+        var items = [];
+        while (i < lines.length) {
+          var p = parseListItem(lines[i]);
+          if (!p) break;
+          items.push(p);
+          i++;
+        }
+        html.push(buildList(items, 0, 0).html);
+        continue;
+      }
+
+      // 普通段落（合并连续行）
+      var para = [line];
+      i++;
+      while (i < lines.length && lines[i].trim() !== '' &&
+             !isFence(lines[i]) && !/^(#{1,6})\s+/.test(lines[i]) &&
+             !parseListItem(lines[i]) &&
+             !/^\s*>\s?/.test(lines[i]) && !/^\s*([-*_])\1{2,}\s*$/.test(lines[i])) {
+        para.push(lines[i]);
+        i++;
+      }
+      html.push('<p>' + inline(para.join(' ')) + '</p>');
+    }
+
+    return html.join('\n');
+  }
+
+  // 解析单行列表项，返回 { indent, text, ordered } 或 null
+  function parseListItem(line) {
+    var mOrdered = line.match(/^(\s*)\d+\.\s+(.*)$/);
+    if (mOrdered) return { indent: mOrdered[1].length, text: mOrdered[2], ordered: true };
+    var mBullet = line.match(/^(\s*)[-*]\s+(.*)$/);
+    if (mBullet) return { indent: mBullet[1].length, text: mBullet[2], ordered: false };
+    return null;
+  }
+
+  // 按缩进递归构建列表，返回 { html, next }，next 为未消费的下标
+  function buildList(items, start, baseIndent) {
+    var ordered = items[start].ordered;
+    var tag = ordered ? 'ol' : 'ul';
+    var out = ['<' + tag + '>'];
+    var i = start;
+    while (i < items.length) {
+      if (items[i].indent < baseIndent) break;
+      // 缩进更深 → 作为上一个 <li> 的子列表
+      if (items[i].indent > baseIndent && out.length > 1) {
+        var sub = buildList(items, i, items[i].indent);
+        out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, sub.html + '</li>');
+        i = sub.next;
+        continue;
+      }
+      out.push('<li>' + inline(items[i].text) + '</li>');
+      i++;
+    }
+    out.push('</' + tag + '>');
+    return { html: out.join(''), next: i };
+  }
+
+  function load() {
+    var target = document.getElementById('md');
+    var loading = document.getElementById('md-loading');
+    fetch('/data/install.md', { cache: 'no-cache' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(function (md) {
+        if (loading) loading.parentNode.removeChild(loading);
+        target.innerHTML = render(md);
+      })
+      .catch(function (err) {
+        if (loading) loading.parentNode.removeChild(loading);
+        target.innerHTML = '<div id="md-error">安装文档加载失败：' + escapeHtml(err.message) +
+          '<br>请确认服务已启动，且 /data/install.md 可访问。</div>';
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', load);
+  } else {
+    load();
+  }
+})();
+</script>
+</body>
+</html>
