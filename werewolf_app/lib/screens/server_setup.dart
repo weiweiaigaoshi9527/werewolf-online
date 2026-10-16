@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../config.dart';
 import '../store.dart';
 import '../theme.dart';
+import '../i18n.dart';
 
 class ServerSetupScreen extends StatefulWidget {
   final ServerConfig config;
@@ -64,20 +65,20 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('🌙', textAlign: TextAlign.center, style: TextStyle(fontSize: 44)),
+                    const Tx('🌙', textAlign: TextAlign.center, style: TextStyle(fontSize: 44)),
                     const SizedBox(height: 8),
-                    const Text('狼人杀',
+                    Tx('狼人杀',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 30, color: kMoon, letterSpacing: 8, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
-                    const Text('连接你的服务器', textAlign: TextAlign.center, style: TextStyle(color: kDim)),
+                    Tx('连接你的服务器', textAlign: TextAlign.center, style: TextStyle(color: kDim)),
                     const SizedBox(height: 22),
                     TextField(
                       controller: _url,
                       keyboardType: TextInputType.url,
-                      decoration: const InputDecoration(
-                        labelText: '服务器地址',
-                        hintText: 'https://你的域名:${ServerConfig.kDefaultPort}',
+                      decoration: InputDecoration(
+                        labelText: tr('服务器地址'),
+                        hintText: tr('https://你的域名:${ServerConfig.kDefaultPort}'),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -85,31 +86,31 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       activeColor: kAccent,
-                      title: const Text('允许自签名证书（仅局域网调试）', style: TextStyle(fontSize: 13.5)),
+                      title: const Tx('允许自签名证书（仅局域网调试）', style: TextStyle(fontSize: 13.5)),
                       value: _insecure,
                       onChanged: (v) => setState(() => _insecure = v),
                     ),
                     if (_msg.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 8),
-                        child: Text(_msg, style: TextStyle(color: _ok ? kGreen : kBlood, fontSize: 13.5)),
+                        child: Tx(_msg, style: TextStyle(color: _ok ? kGreen : kBlood, fontSize: 13.5)),
                       ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       onPressed: _testing ? null : _test,
                       icon: const Icon(Icons.wifi_tethering, size: 18),
-                      label: Text(_testing ? '测试中…' : '测试连接'),
+                      label: Tx(_testing ? '测试中…' : '测试连接'),
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton(
                       onPressed: widget.config.baseUrl.isEmpty ? _save : _save,
                       child: const Padding(
                         padding: EdgeInsets.symmetric(vertical: 6),
-                        child: Text('保存并进入', style: TextStyle(fontSize: 16)),
+                        child: Tx('保存并进入', style: TextStyle(fontSize: 16)),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    Tx(
                       '所有设备填同一个服务器地址即可互通；未来更新只需更新服务端，App 无需改。',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: kDim, fontSize: 12, height: 1.6),

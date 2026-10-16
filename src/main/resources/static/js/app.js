@@ -118,6 +118,7 @@ function expNeeded(level) { return Math.floor(100 * Math.pow(level, 1.5)); }
 /* ---------- 视图切换 ---------- */
 let currentView = 'auth';
 function showView(name) {
+  const prev = currentView;
   currentView = name;
   $('view-auth').classList.toggle('hidden', name !== 'auth');
   $('view-lobby').classList.toggle('hidden', name !== 'lobby');
@@ -130,6 +131,8 @@ function showView(name) {
   $('view-replay').classList.toggle('hidden', name !== 'replay');
   $('topbar').classList.toggle('hidden', name === 'auth');
   if (window.Nav) Nav.sync(name);        // 外壳：导航高亮 / 壳层显隐 / URL 同步
+  // 回到大厅时刷新「全 AI 观战厅」列表（仅在真正切回大厅时拉一次，避免重复请求）
+  if (name === 'lobby' && prev !== 'lobby' && state.user) { try { loadAiShows(); } catch (_) {} }
 }
 
 /* ---------- 用户渲染 ---------- */
@@ -145,8 +148,8 @@ function renderUser() {
   $('lobby-exp-text').textContent = `${u.exp} / ${need} EXP`;
   $('lobby-gold').textContent = u.gold;
   const adm = $('btn-admin'); if (adm) adm.classList.toggle('hidden', !u.admin);   // 管理员：主页显示后台入口
-  // 大厅主页头像：与"我的"页同一套渲染（优先 QQ 头像/上传头像 avatarUrl，其次默认库 + 头像框）。
-  // 此前这里是写死的 emoji，换装/绑定 QQ 后主页不更新；现在每次 renderUser 都重画。
+  // 大厅主页头像：与「我的」页同一套渲染（优先上传头像 avatarUrl，其次默认库 + 头像框）。
+  // 此前这里是写死的 emoji，换装/换头像后主页不更新；现在每次 renderUser 都重画。
   const la = $('lobby-avatar');
   if (la) la.innerHTML = renderAvatarHtml(u, 56);
 }
@@ -167,50 +170,12 @@ async function handleAuth(action, payload) {
   }
 }
 
-/* ---------- QQ 绑定：强制补填 + 1000 金币奖励 ---------- */
-/** 未填 QQ 的玩家在进入大厅前强制弹窗（无取消按钮）；已填则不弹。 */
-function checkQqRequired(user) {
-  if (!user) return;
-  if (user.needQq) {
-    const m = $('modal-qq');
-    if (m) { m.classList.remove('hidden'); setTimeout(() => { const i = $('qq-input'); if (i) i.focus(); }, 80); }
-  }
-}
-
-/** 提交 QQ 号：成功后刷新用户态；领到奖励时弹提示。 */
-async function saveQq() {
-  const input = $('qq-input'), err = $('qq-err');
-  const q = (input.value || '').trim();
-  err.classList.add('hidden');
-  if (!/^[1-9][0-9]{4,10}$/.test(q)) {
-    err.textContent = 'QQ 号需为 5-11 位数字（不以 0 开头）';
-    err.classList.remove('hidden');
-    return;
-  }
-  const btn = $('btn-qq-save');
-  btn.disabled = true; btn.textContent = '绑定中…';
-  try {
-    const r = await API.post('/api/user/qq', { qq: q });
-    if (state.user) { state.user.qq = r.qq; state.user.needQq = false; if (r.avatarUrl) state.user.avatarUrl = r.avatarUrl; if (r.gold_balance != null) state.user.gold = r.gold_balance; renderUser(); }
-    $('modal-qq').classList.add('hidden');
-    if (r.rewarded > 0) toast('🐧 QQ 绑定成功！' + r.rewarded + ' 金币已到账');
-    else toast('QQ 已更新');
-  } catch (e) {
-    err.textContent = e.message || '绑定失败';
-    err.classList.remove('hidden');
-  } finally {
-    btn.disabled = false; btn.textContent = '🐧 绑定并领取 1000 金币';
-  }
-}
-
 async function enterLobby() {
   renderUser();
   showView('lobby');
   connectWS();
   try { FR.loadUnread(); } catch (_) {}
   try { checkinStatus(); } catch (_) {}
-  // 强制补填 QQ：存量玩家未填 QQ 号时弹出（无取消按钮），填完领 1000 金币
-  checkQqRequired(state.user);
   // 若已在房间，直接跳房间页；若房间已在对局中，恢复到对局界面
   try {
     const r = await API.get('/api/room/my');
@@ -315,6 +280,8 @@ function connectWS() {
         break;
       case 'game.chat':
         onGameChat(msg); break;
+      case 'game.wolfchat':
+        onWolfChat(msg); break;
       case 'narrator':
         showNarrator(msg); break;
       case 'maintenance':
@@ -333,6 +300,10 @@ function connectWS() {
       case 'ticket.update':
         toast('🎫 你的工单 #' + msg.id + ' 状态更新：' + (msg.status || ''));
         if (currentView === 'tickets') TK.loadMine();
+        break;
+      case 'support.update':
+        // 在线客服有新回复：面板开着就立即刷新
+        if (!$('modal-support').classList.contains('hidden')) { SUP._sig = ''; SUP.load(); }
         break;
       case 'error':
         console.warn('WS 错误:', msg.message);
@@ -380,13 +351,8 @@ function renderRoom() {
   const room = state.room;
   $('room-no').textContent = room.roomNo;
   $('room-status').textContent = room.status === 'WAITING' ? '等待中' : '游戏中';
-
-  // 双人组队：座位对集合（用于 👫 标记）与我的搭档
-  const duos = room.duos || [];
-  const duoPartner = new Map();
-  for (const pair of duos) { duoPartner.set(pair[0], pair[1]); duoPartner.set(pair[1], pair[0]); }
-  const myPartnerSeat = state.mySeat ? duoPartner.get(state.mySeat) : null;
-  const iAmPaired = !!myPartnerSeat;
+  // 全 AI 观战房：座位/操作按钮都不适用，走专用渲染（板子/模式面板仍按常规逻辑收尾）
+  if (room.aiOnly) { renderAiShowRoom(room); renderBoardPanel(room); renderModePanel(); return; }
 
   const grid = $('seat-grid');
   grid.innerHTML = '';
@@ -404,35 +370,17 @@ function renderRoom() {
     } else {
       const isMe = p.userId === state.user.id;
       const isHost = p.userId === room.hostUserId;
-      const partnerSeat = duoPartner.get(s);
       if (isMe) el.classList.add('me');
       if (!p.online) el.classList.add('offline');
       el.innerHTML = `
         <div class="seat-badge">#${p.seat}</div>
         ${isHost ? '<div class="seat-crown" title="房主">👑</div>' : ''}
         <div class="seat-avatar">${renderAvatarHtml(p, 44)}</div>
-        <div class="seat-name" style="${colorStyle(p.nickColor, 'color')}">${escapeHtml(p.nickname)}${p.ai ? ' 🤖' : ''}${partnerSeat ? ' 👫' : ''}${isMe ? ' (我)' : ''} ${vipBadge(p.vip)}</div>
+        <div class="seat-name" style="${colorStyle(p.nickColor, 'color')}">${escapeHtml(p.nickname)}${p.ai ? ' 🤖' : ''}${isMe ? ' (我)' : ''} ${vipBadge(p.vip)}</div>
         ${p.title ? `<div class="seat-title">${escapeHtml(p.title)}</div>` : ''}
         <div class="seat-sub">Lv.${p.level} · ${p.online ? '在线' : '离线'}</div>
         <div class="seat-ready ${p.ready ? 'on' : 'off'}">${p.ready ? '已准备' : '未准备'}</div>
       `;
-      // 组队模式：向他人发起/解除组队（仅等待中、自己未组队或解除自己的队伍）
-      if (room.duoMode && room.status === 'WAITING' && !state.isSpectator) {
-        if (!isMe && !iAmPaired && !p.ai) {
-          const bt = document.createElement('button');
-          bt.className = 'seat-duo';
-          bt.textContent = '组队';
-          bt.onclick = () => inviteDuo(p.userId, p.nickname);
-          el.appendChild(bt);
-        }
-        if (!isMe && partnerSeat === state.mySeat) {
-          const bt = document.createElement('button');
-          bt.className = 'seat-duo on';
-          bt.textContent = '解除组队';
-          bt.onclick = () => { if (confirm(`解除与 ${p.nickname} 的组队？`)) cancelDuo(); };
-          el.appendChild(bt);
-        }
-      }
       // 房主可对他人的座位操作（AI 不可被转让房主/移出意义不大，直接不提供入口）
       if (!isMe && !p.ai && state.user.id === room.hostUserId && !state.isSpectator) {
         const kick = document.createElement('button');
@@ -450,12 +398,10 @@ function renderRoom() {
     grid.appendChild(el);
   }
 
-  // 组队邀请轮询（等待中、有人向我发出邀请则弹确认）
-  if (room.status === 'WAITING' && !room.duoInviteShown) pollDuoInvite();
-  else if (room.status !== 'WAITING') { room.duoInviteShown = false; }
-
   // 底部按钮
   $('btn-ready').classList.toggle('hidden', state.isSpectator);
+  $('btn-ai-restart').classList.add('hidden');
+  $('btn-ai-stop').classList.add('hidden');
   const isHost = state.user.id === room.hostUserId && !state.isSpectator;
   $('btn-start').classList.toggle('hidden', !isHost);
   $('btn-add-ai').classList.toggle('hidden', !(isHost && room.status === 'WAITING'));
@@ -467,6 +413,43 @@ function renderRoom() {
 
   renderBoardPanel(room);
   renderModePanel();
+}
+
+/**
+ * 全 AI 观战房的房间页渲染：不显示座位网格，改为说明卡片；
+ * 隐藏「准备 / 开始 / 补位 AI」等只对真人座位有意义的按钮，保留邀请入口。
+ */
+function renderAiShowRoom(room) {
+  const grid = $('seat-grid');
+  if (grid) {
+    grid.innerHTML = `<div class="feed-item" style="grid-column:1/-1;line-height:1.8">
+      🎬 <b>全 AI 队局</b>：整局由 AI 自动对战，真人只能观战，不能入座。<br>
+      房号 <b>${esc(room.roomNo)}</b> —— 发给好友，或让好友在大厅「全 AI 观战厅」一键进来一起看。<br>
+      一局结束后会自动续开下一局。
+    </div>`;
+  }
+  $('btn-ready').classList.add('hidden');
+  $('btn-start').classList.add('hidden');
+  $('btn-add-ai').classList.add('hidden');
+  $('btn-invite-friend').classList.remove('hidden');
+  $('btn-invite-link').classList.remove('hidden');
+  // 房主：可手动续开 / 停止（观战房没有「准备/开始」概念）
+  const isHost = state.user.id === room.hostUserId;
+  $('btn-ai-restart').classList.toggle('hidden', !isHost);
+  $('btn-ai-stop').classList.toggle('hidden', !isHost);
+}
+
+/** 房主手动续开一局全 AI 对局。 */
+async function aiShowRestart() {
+  try { await API.post('/api/ai-show/restart', {}); toast('🎬 已续开新一局'); await refreshAiShowGame(); }
+  catch (e) { toast(e.message, true); }
+}
+
+/** 房主停止全 AI 观战房的对局（房间保留，可再次续开）。 */
+async function aiShowStop() {
+  if (!confirm('确定停止当前全 AI 对局？房间会保留，可随时续开。')) return;
+  try { await API.post('/api/ai-show/stop', {}); toast('已停止当前对局'); }
+  catch (e) { toast(e.message, true); }
 }
 
 function avatarEmoji(id) {
@@ -528,6 +511,90 @@ async function quickAiRoom() {
     await API.post('/api/room/add-ai', {});
     toast('已创建房间并补齐 AI，可随时开局');
   } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- 全 AI 队局（观战） ---------- */
+let aiShowBoards = null;
+
+/** 打开「全 AI 队局」创建弹窗（板子列表按需拉取并缓存）。 */
+async function openAiShowModal() {
+  const err = $('ai-show-err'); if (err) err.classList.add('hidden');
+  $('modal-ai-show').classList.remove('hidden');
+  const sel = $('ai-show-board');
+  if (!aiShowBoards) {
+    try { const r = await API.get('/api/ai-show/boards'); aiShowBoards = r.boards || []; }
+    catch (_) { aiShowBoards = []; }
+  }
+  if (sel && !sel.dataset.filled) {
+    sel.innerHTML = aiShowBoards.map(b =>
+      `<option value="${esc(b.id)}">${esc(b.name)}（${b.total} 人）· ${esc(b.desc || '')}</option>`).join('');
+    sel.dataset.filled = '1';
+  }
+}
+
+/** 创建全 AI 队局并立即开局；创建者作为观战者进入对局视图。 */
+async function createAiShow() {
+  const btn = $('btn-ai-show-confirm'), err = $('ai-show-err');
+  const sel = $('ai-show-board');
+  const boardId = sel ? sel.value : '';
+  err.classList.add('hidden');
+  btn.disabled = true; btn.textContent = '开局中…';
+  try {
+    const r = await API.post('/api/ai-show/create', { boardId });
+    $('modal-ai-show').classList.add('hidden');
+    if (r.room) applyRoomState(r.room);
+    toast('🎬 全 AI 队局已开始（房间 ' + r.roomNo + '）');
+    await refreshAiShowGame();
+  } catch (e) {
+    err.textContent = e.message || '创建失败';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = '开一场';
+  }
+}
+
+/** 拉取并渲染当前房间的对局视图（观战房创建/进入后立即出画面，不必等下一次 WS 推送）。 */
+async function refreshAiShowGame() {
+  try { const g = await API.get('/api/game/state'); if (g && g.phase) renderGame(g); } catch (_) {}
+}
+
+/** 观战某场全 AI 队局。 */
+async function spectateAiShow(roomNo) {
+  try {
+    const view = await API.post('/api/room/spectate', { roomNo });
+    applyRoomState(view);
+    toast('已进入全 AI 观战房 ' + roomNo);
+    await refreshAiShowGame();
+  } catch (e) { toast(e.message, true); }
+}
+
+/** 大厅「全 AI 观战厅」列表：展示进行中的全 AI 队局，一键进入观战。 */
+async function loadAiShows() {
+  const box = $('ai-show-list');
+  if (!box || !state.user) return;
+  try {
+    const r = await API.get('/api/ai-show/list');
+    const shows = r.shows || [];
+    if (!shows.length) {
+      box.innerHTML = '<div class="feed-item">暂无进行中的全 AI 队局，点击上方「全 AI 队局」开一场。</div>';
+      return;
+    }
+    box.innerHTML = '';
+    for (const s of shows) {
+      const el = document.createElement('div');
+      el.className = 'feed-item';
+      const stage = s.playing
+        ? `第 ${s.day || 1} 天 · 存活 ${s.alive}/${s.total}`
+        : '结算中，稍后自动续开';
+      el.innerHTML = `🎬 <b>房间 ${esc(s.roomNo)}</b> · ${esc(s.boardName || '')} · ${stage} · 👁 ${s.watchers || 0} 人`
+        + ` <button class="btn btn-sm btn-primary" data-no="${esc(s.roomNo)}">观战</button>`;
+      box.appendChild(el);
+      const b = el.querySelector('button');
+      if (b) b.onclick = () => spectateAiShow(b.dataset.no);
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="feed-item">加载失败：' + esc(e.message) + '</div>';
+  }
 }
 
 async function joinRoom(roomNo, skipConfirm) {
@@ -607,24 +674,12 @@ function bindAuthUI() {
   });
   $('form-register').addEventListener('submit', (e) => {
     e.preventDefault();
-    const qq = ($('reg-qq') && $('reg-qq').value.trim()) || '';
-    if (qq && !/^[1-9][0-9]{4,10}$/.test(qq)) {
-      const eb = $('auth-error');
-      eb.textContent = 'QQ 号需为 5-11 位数字（不以 0 开头）';
-      eb.classList.remove('hidden');
-      return;
-    }
     handleAuth('register', {
       username: $('reg-username').value.trim(),
       password: $('reg-password').value,
       nickname: $('reg-nickname').value.trim(),
-      qq,
     });
   });
-  const qqSave = $('btn-qq-save');
-  if (qqSave) qqSave.addEventListener('click', saveQq);
-  const qqInput = $('qq-input');
-  if (qqInput) qqInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveQq(); });
   $('btn-logout').addEventListener('click', logout);
 }
 
@@ -659,6 +714,12 @@ function bindLobbyUI() {
     if (e.key === 'Enter') $('btn-join-confirm').click();
     if (e.key === 'Escape') $('btn-join-cancel').click();
   });
+  // 全 AI 队局（观战）
+  const aiBtn = $('btn-ai-show'); if (aiBtn) aiBtn.addEventListener('click', openAiShowModal);
+  const aiCancel = $('btn-ai-show-cancel');
+  if (aiCancel) aiCancel.addEventListener('click', () => $('modal-ai-show').classList.add('hidden'));
+  const aiConfirm = $('btn-ai-show-confirm');
+  if (aiConfirm) aiConfirm.addEventListener('click', createAiShow);
 }
 
 function bindRoomUI() {
@@ -680,49 +741,12 @@ function bindRoomUI() {
     if (!no) return toast('还没进入房间', true);
     copyText(location.origin + '/?join=' + no);
   });
+  const ar = $('btn-ai-restart'); if (ar) ar.addEventListener('click', aiShowRestart);
+  const as = $('btn-ai-stop'); if (as) as.addEventListener('click', aiShowStop);
 }
 
 async function addRoomAi() {
   try { await API.post('/api/room/add-ai', {}); } catch (e) { toast(e.message, true); }
-}
-
-/* ---------- 双人组队 ---------- */
-const duoState = { handled: new Set(), pollTimer: null };
-
-async function inviteDuo(userId, nickname) {
-  try {
-    await API.post('/api/room/duo/invite', { targetUserId: userId });
-    toast(`已向 ${nickname} 发起组队邀请，等待接受`);
-  } catch (e) { toast(e.message, true); }
-}
-async function cancelDuo() {
-  duoState.handled.clear();   // 解除队伍后，允许同一人再次邀请时重新弹窗
-  try { await API.post('/api/room/duo/cancel', {}); } catch (e) { toast(e.message, true); }
-}
-function pollDuoInvite() {
-  if (duoState.pollTimer) return; // 去重：渲染多次只挂一个轮询
-  duoState.pollTimer = setTimeout(async () => {
-    duoState.pollTimer = null;
-    try {
-      const r = await API.get('/api/room/duo/pending');
-      const inv = r.invite;
-      if (inv && inv.fromUserId != null && !duoState.handled.has(inv.fromUserId)) {
-        duoState.handled.add(inv.fromUserId);
-        let accepted = false;
-        if (confirm(`👫 ${inv.fromName} 邀请你组队（同阵营），接受吗？`)) {
-          accepted = true;
-          try {
-            await API.post('/api/room/duo/accept', { fromUserId: inv.fromUserId });
-            toast('组队成功！你们将拿到同阵营身份');
-          } catch (e) { toast(e.message, true); }
-        } else {
-          try { await API.post('/api/room/duo/cancel', {}); } catch (_) {}
-        }
-        // 邀请已消费：同一人解除组队后再次邀请时，必须还能弹窗（否则会被静默吞掉）
-        duoState.handled.delete(inv.fromUserId);
-      }
-    } catch (_) {}
-  }, 800);
 }
 
 /* ================= 板子配置 ================= */
@@ -857,15 +881,16 @@ function bindSfxUI() {
 
 /* ================= 对局渲染 ================= */
 const game = { view: null, tick: null, prevPhase: null, prevMyTurn: false, prevDeaths: 0,
-  voiceMode: false, anon: false, prevVoiceMode: false, prevVoiceAvailable: false, talkingName: null, dealt: true };
+  voiceMode: false, anon: false, prevVoiceMode: false, prevVoiceAvailable: false, talkingName: null, dealt: true,
+  mode3d: false };
 
 function phaseLabel(p) {
   return ({
     SETUP: '准备', NIGHT_GUARD: '🌙 夜晚·守卫行动', NIGHT_WOLF: '🌙 夜晚·狼人行动',
     NIGHT_WITCH: '🌙 夜晚·女巫行动', NIGHT_SEER: '🌙 夜晚·预言家验人', NIGHT_CROW: '🌙 夜晚·乌鸦行动',
     NIGHT_SILENCER: '🌙 夜晚·禁言长老行动', DAWN: '🌅 天亮了', SHERIFF_ELECTION: '👑 警长竞选',
-    LAST_WORDS: '💬 遗言', DAY_SPEAK: '☀️ 白天发言', DAY_VOTE: '🗳️ 放逐投票',
-    DAY_VOTE_TIEBREAK: '⚔️ 平票 PK', SHOOT: '🔫 开枪', GAME_OVER: '🏁 游戏结束'
+    LAST_WORDS: '💬 遗言', SHERIFF_ORDER: '👑 决定发言顺序', DAY_SPEAK: '☀️ 白天发言', DAY_VOTE: '🗳️ 放逐投票',
+    DAY_VOTE_TIEBREAK: '⚔️ 平票 PK', SHOOT: '🔫 开枪', SHERIFF_TRANSFER: '👑 警徽移交', GAME_OVER: '🏁 游戏结束'
   })[p] || p;
 }
 
@@ -919,12 +944,96 @@ function renderGame(v) {
   game.prevVoiceMode = v.voiceMode;
   gameFx(v);
   renderGameSeats(v);
+  restoreMode3d();
+  renderGame3D(v);
   renderMyCard(v);
+  renderGameChatState(v);
   renderGameFeed(v);
   renderGameAction(v);
   renderMarkers(v);
   startCountdown(v);
   if (v.phase === 'GAME_OVER') showSettle(v);
+}
+
+/** 房间聊天只在全真人局开放：本局含 AI 时禁用输入并给出说明（服务端也会拒绝发送）。 */
+function renderGameChatState(v) {
+  const inp = $('gc-input'), btn = $('gc-send');
+  if (!inp || !btn) return;
+  const on = v.chatEnabled !== false;
+  inp.disabled = !on;
+  btn.disabled = !on;
+  inp.placeholder = on ? '说点什么…' : '本局有 AI 参与，聊天已关闭';
+  const tab = document.querySelector('[data-panel="#dock-chat"]');
+  if (tab) tab.title = on ? '' : '仅全真人局开放房间聊天';
+
+  // 狼队夜间频道：只有存活的狼、且处于夜晚时才显示（消息只推给狼，且不写入对局记录）
+  const wolfOn = !!v.wolfChatEnabled;
+  const wolfTab = $('tab-wolf'), wolfPanel = $('dock-wolf');
+  const wi = $('wc-input'), wb = $('wc-send');
+  if (wolfTab) wolfTab.classList.toggle('hidden', !wolfOn);
+  if (wolfPanel) wolfPanel.classList.toggle('hidden', !wolfOn);
+  if (wi) wi.disabled = !wolfOn;
+  if (wb) wb.disabled = !wolfOn;
+  if (!wolfOn && wolfPanel) {
+    // 关闭时若正停在该面板，切回「对局记录」，避免留下空白面板
+    if (wolfPanel.classList.contains('active')) {
+      const feedTab = document.querySelector('[data-panel="#dock-feed"]');
+      if (feedTab) feedTab.click();
+    }
+    const wbox = $('wolf-chat');
+    if (wbox) wbox.innerHTML = '';
+  }
+}
+
+/* ---------- 3D 视角（Three.js 圆桌场景；与 2D 座位圈共用同一份对局状态） ---------- */
+const LS_MODE_3D = 'ww_mode_3d';
+let mode3dRestored = false;
+
+/** 3D 是否可用：Three.js 已加载且浏览器支持 WebGL。 */
+function scene3dReady() {
+  try { return !!(window.Scene3D && window.Scene3D.isAvailable && window.Scene3D.isAvailable()); }
+  catch (_) { return false; }
+}
+
+/** 切换 3D / 2D：只切 DOM 显隐与渲染循环，不动任何对局逻辑。 */
+function applyMode3d(on) {
+  const stage = $('stage-3d'), seats = $('game-seats'), btn = $('btn-toggle-3d');
+  if (on && !scene3dReady()) {
+    toast('当前环境不支持 3D 视角（WebGL 不可用），已保持 2D', true);
+    on = false;
+  }
+  game.mode3d = !!on;
+  if (stage) stage.classList.toggle('hidden', !on);
+  if (seats) seats.classList.toggle('hidden', on);
+  if (btn) btn.textContent = on ? '🗺 2D 视角' : '🎥 3D 视角';
+  try { localStorage.setItem(LS_MODE_3D, on ? '1' : '0'); } catch (_) {}
+  if (!window.Scene3D) return;
+  if (on) {
+    window.Scene3D.setActive(true, $('canvas-3d'));
+    requestAnimationFrame(() => { window.Scene3D.resize(); if (game.view) window.Scene3D.update(game.view); });
+  } else {
+    window.Scene3D.setActive(false);
+  }
+}
+
+/** 首次进入对局时恢复上次的 3D/2D 选择。 */
+function restoreMode3d() {
+  if (mode3dRestored) return;
+  mode3dRestored = true;
+  let want = false;
+  try { want = localStorage.getItem(LS_MODE_3D) === '1'; } catch (_) {}
+  if (want && scene3dReady()) applyMode3d(true);
+}
+
+/** 对局状态推送 → 同步到 3D 场景（仅 3D 模式下工作）。 */
+function renderGame3D(v) {
+  if (!game.mode3d || !scene3dReady()) return;
+  try { window.Scene3D.update(v); } catch (_) {}
+}
+
+/** 离开对局页时暂停 3D 渲染，避免后台空转占用 GPU。 */
+function pauseScene3d() {
+  try { if (window.Scene3D) window.Scene3D.setActive(false); } catch (_) {}
 }
 
 function renderGameSeats(v) {
@@ -957,7 +1066,6 @@ function renderMyCard(v) {
   $('my-faction').textContent = info.faction === 'WOLF' ? '🐺 狼人阵营'
     : (info.faction ? '🌕 好人阵营' : '👁 观战席');
   let d = '';
-  if (info.partner) d += `<div>👫 队友：<span class="tag">${info.partner}号</span>（双人组队 · 同阵营）</div>`;
   if (info.teammates && info.teammates.length) {
     d += `<div>狼队友：<span class="tag">${info.teammates.map(s => s + '号').join(' ')}</span></div>`;
   }
@@ -993,28 +1101,85 @@ function renderGameFeed(v) {
   }
 }
 
+/* 对局事件 → 中文文案（对局记录与回放共用）。
+   服务端事件 detail 里含英文标记（NIGHT_ACTION / NIGHT_RESOLVE / GAME_OVER 等），这里统一转成中文展示。 */
+function eventTextZh(e) {
+  const d = e.detail == null ? '' : String(e.detail);
+  const seat = (n) => (n ? n + '号' : '');
+  switch (e.type) {
+    case 'GAME_START': return '对局开始';
+    case 'NIGHT_ACTION': {
+      if (d.startsWith('SEER_CHECK=')) return `预言家（${seat(e.actor)}）查验 ${seat(e.target)}：${d.endsWith('WOLF') ? '狼人' : '好人'}`;
+      const map = {
+        GUARD: `守卫（${seat(e.actor)}）守护 ${seat(e.target) || '空'}`,
+        WOLF_VOTE: `狼人（${seat(e.actor)}）提议刀 ${seat(e.target) || '空刀'}`,
+        WOLF_KILL_RESOLVED: `狼队统一刀口 ${seat(e.target) || '空刀'}`,
+        WITCH_SAVE: `女巫（${seat(e.actor)}）使用解药救 ${seat(e.target) || '空'}`,
+        WITCH_POISON: `女巫（${seat(e.actor)}）使用毒药毒 ${seat(e.target) || '空'}`,
+        CROW_ACCUSE: `乌鸦（${seat(e.actor)}）诽谤 ${seat(e.target) || '无'}`,
+        SILENCER: `禁言长老（${seat(e.actor)}）禁言 ${seat(e.target) || '无'}`,
+      };
+      return map[d.split('=')[0]] || '夜间行动';
+    }
+    case 'NIGHT_RESOLVE': {
+      if (d.startsWith('wolfKill=')) {
+        const p = {};
+        d.split(' ').forEach(kv => { const [k, v] = kv.split('='); p[k] = v; });
+        return `夜晚结算：狼刀 ${seat(+p.wolfKill) || '无'}，守卫 ${seat(+p.guard) || '无'}，解药 ${seat(+p.save) || '无'}，毒药 ${seat(+p.poison) || '无'}`;
+      }
+      if (d === 'PROTECTED_BY_GUARD') return '守卫守护成功，狼刀被挡下';
+      if (d === 'SAVED_BY_WITCH') return '女巫使用解药，被刀者获救';
+      return '夜晚结算';
+    }
+    case 'DAWN_ANNOUNCE': {
+      if (d.indexOf('存活玩家') === 0) return d;   // 实时对局已由服务端改写为中文
+      const m = d.match(/\[([\d,\s]*)\]/);
+      const ids = m ? m[1].split(',').map(s => s.trim()).filter(Boolean) : [];
+      return ids.length ? `天亮了，昨夜出局：${ids.map(i => i + '号').join('、')}` : '天亮了，昨夜是平安夜';
+    }
+    case 'PLAYER_DIED': return `${seat(e.actor)} 出局（${causeZh(d)}）`;
+    case 'SPEECH': return `${seat(e.actor)} 发言：${d}`;
+    case 'LAST_WORDS': return `${seat(e.actor)} 遗言：${d}`;
+    case 'VOTE_DETAIL': return d;
+    case 'VOTE_RESULT': return e.actor ? `投票结果：${seat(e.actor)} 被放逐` : `投票结果：${d}`;
+    case 'VOTE_TIE': return d.replace(/[:：]?\s*\[([\d,\s]*)\]/, (_, g) =>
+      '：' + g.split(',').map(s => s.trim()).filter(Boolean).map(i => i + '号').join('、'));
+    case 'SHOOT': return `${seat(e.actor)} ${d}${e.target ? '，带走 ' + seat(e.target) : ''}`;
+    case 'IDIOT_REVEAL': return `${seat(e.actor)} 白痴翻牌免死`;
+    case 'WHITE_WOLF_BLOWUP': return `${seat(e.actor)} ${d || '自爆'}${e.target ? '，带走 ' + seat(e.target) : ''}`;
+    case 'SHERIFF_SIGNUP': return `${seat(e.actor)} ${d === '上警' ? '上警竞选' : '不上警'}`;
+    case 'SHERIFF_WITHDRAW': return `${seat(e.actor)} 退水（退出警长竞选）`;
+    case 'SHERIFF_WIN': return `${seat(e.actor)} ${d}`.trim();
+    case 'ITEM_REVEAL': return `${seat(e.actor)} 使用查杀卡：${seat(e.target)} 是${d}`;
+    case 'ITEM_EFFECT': return `${seat(e.actor)} ${d}`.trim();
+    case 'GAME_OVER': return `游戏结束，${d.replace('winner=', '')}获胜`;
+    default: return `${seat(e.actor)} ${d}`.trim() || '对局事件';
+  }
+}
+
 function feedLine(e) {
   const who = e.actor ? `<span class="fd-actor">${e.actor}号</span> ` : '';
-  const tgt = e.target ? `→ ${e.target}号` : '';
+  const tgt = e.target ? ` → ${e.target}号` : '';
   switch (e.type) {
-    case 'SPEECH': return `${who}${esc(e.detail)}`;
+    case 'SPEECH': return `${who}发言：${esc(e.detail)}`;
     case 'LAST_WORDS': return `💀 ${who}遗言：${esc(e.detail)}`;
     case 'PLAYER_DIED': return `☠️ ${e.actor}号 出局（${causeZh(e.detail)}）`;
     case 'DAWN_ANNOUNCE': return `🌅 ${esc(e.detail)}`;
     case 'VOTE_RESULT': return `🗳️ ${e.actor ? e.actor + '号 ' : ''}${esc(e.detail)}`;
     case 'VOTE_DETAIL': return `<span class="fd-vote">🗳️ ${esc(e.detail)}</span>`;
-    case 'VOTE_TIE': return `⚔️ ${esc(e.detail)}`;
     case 'SHOOT': return `🔫 ${who}${esc(e.detail)}${tgt}`;
     case 'IDIOT_REVEAL': return `🤪 ${e.actor}号 白痴翻牌`;
-    case 'WHITE_WOLF_BLOWUP': return `💥 ${e.actor}号 白狼王自爆${tgt}`;
+    case 'WHITE_WOLF_BLOWUP': return `💥 ${e.actor}号 ${esc(e.detail) || '自爆'}${tgt}`;
     case 'SHERIFF_WIN': return `👑 ${e.actor ? e.actor + '号 ' : ''}${esc(e.detail)}`;
     case 'SHERIFF_SIGNUP': return `🙋 ${e.actor}号 ${esc(e.detail)}`;
-    case 'GAME_OVER': return `🏁 ${esc(e.detail)}`;
+    case 'SHERIFF_WITHDRAW': return `🙋‍♂️ ${e.actor}号 退水（退出警长竞选）`;
     case 'NIGHT_ACTION':
-      if (e.detail === 'WOLF_VOTE') return `<span class="fd-wolf">🐺 ${e.actor}号 提议刀 ${e.target}号</span>`;
-      if (e.detail === 'WOLF_KILL_RESOLVED') return `<span class="fd-wolf">🐺 狼队统一刀口：${e.target}号</span>`;
-      return `${who}${esc(e.detail)}`;
-    default: return `${who}${esc(e.detail)}`;
+    case 'NIGHT_RESOLVE':
+      return `<span class="fd-wolf">🌙 ${esc(eventTextZh(e))}</span>`;
+    case 'VOTE_TIE':
+    case 'GAME_OVER':
+    case 'GAME_START':
+    default: return esc(eventTextZh(e));
   }
 }
 function causeZh(c) { return ({ WOLF: '狼人刀杀', POISON: '女巫毒杀', EXILE: '投票放逐', SHOT: '枪杀', BLOWUP: '自爆' })[c] || c; }
@@ -1042,6 +1207,34 @@ function renderGameAction(v) {
   const kind = v.actionKind;
   // 白狼王自爆：白天的“附加可选动作”，不要求恰好轮到自己，只要自己是存活白狼王且本局未自爆过即可发起
   if (isBlowUpAvailable(v)) renderBlowUpUI(v);
+  // 警徽移交：原警长已出局，由其本人指定继承人或撕毁警徽
+  if (kind === 'SHERIFF_TRANSFER') {
+    const cands = (v.seats || []).filter(s => s.alive && s.seat !== v.mySeat);
+    let html = `<div class="ga-title">👑 你已出局，请决定警徽的去向</div><div class="ga-targets">`;
+    for (const s of cands) {
+      html += `<button class="ga-btn confirm sheriff-give" data-seat="${s.seat}">👑 移交给 ${s.seat}号 ${esc(s.nickname)}</button>`;
+    }
+    html += `<button class="ga-btn" id="ga-sheriff-tear">🚫 撕毁警徽</button></div>`;
+    box.innerHTML = html;
+    box.querySelectorAll('.sheriff-give').forEach(b => b.onclick =
+      () => submitAction({ target: +b.dataset.seat }, '👑 警徽已移交给 ' + b.dataset.seat + ' 号'));
+    $('ga-sheriff-tear').onclick = () => submitAction({ target: 0 }, '🚫 警徽已撕毁');
+    return;
+  }
+  // 警长决定发言顺序：由警长选择从警左还是警右的第一位开始发言
+  if (kind === 'SHERIFF_ORDER') {
+    const alive = (v.seats || []).filter(s => s.alive).map(s => s.seat).sort((a, b) => a - b);
+    if (alive.length === 0) { box.innerHTML = '<div class="ga-hint">场上已无存活玩家。</div>'; return; }
+    const myIdx = alive.indexOf(v.mySeat);
+    const right = alive[(myIdx + 1) % alive.length];
+    const left = alive[(myIdx - 1 + alive.length) % alive.length];
+    box.innerHTML = `<div class="ga-title">👑 你是警长，请决定从谁开始发言</div><div class="ga-targets">
+      <button class="ga-btn confirm sheriff-start" data-seat="${left}">👈 从警左开始（${left}号）</button>
+      <button class="ga-btn confirm sheriff-start" data-seat="${right}">👉 从警右开始（${right}号）</button></div>`;
+    box.querySelectorAll('.sheriff-start').forEach(b => b.onclick =
+      () => submitAction({ target: +b.dataset.seat }, '👑 从 ' + b.dataset.seat + ' 号开始发言'));
+    return;
+  }
   if (kind === 'SPEECH' || kind === 'PK_SPEECH' || kind === 'LAST_WORDS') {
     const title = kind === 'LAST_WORDS' ? '发表遗言' : (kind === 'PK_SPEECH' ? 'PK 拉票发言' : '轮到你发言');
     renderSpeechUI(title, !!v.voiceMode, !!v.voiceAvailable, !!v.anonymous);
@@ -1057,11 +1250,26 @@ function renderGameAction(v) {
     return;
   }
 
+  if (kind === 'SHERIFF_WITHDRAW') {
+    box.innerHTML = `<div class="ga-title">👑 是否退出警长竞选？</div>
+      <div class="ga-hint">退水后你不再参与警长投票，也不再被投票。</div>
+      <div class="ga-row"><button class="ga-btn confirm" id="ga-withdraw-y">退水（退出竞选）</button>
+      <button class="ga-btn" id="ga-withdraw-n">继续竞选</button></div>`;
+    $('ga-withdraw-y').onclick = () => submitAction({ withdraw: true }, '已退水');
+    $('ga-withdraw-n').onclick = () => submitAction({ withdraw: false }, '继续竞选');
+    return;
+  }
+
   if (kind === 'WITCH') {
     const info = v.myInfo || {};
     const killed = info.killedTonight;
-    let html = `<div class="ga-title">🧪 女巫行动${killed ? `（${killed} 号今晚被刀）` : '（今晚平安夜）'}</div><div class="ga-targets">`;
-    if (info.witchSaveAvailable && killed) html += `<button class="ga-btn confirm" id="ga-witch-save">🧡 用解药救 ${killed} 号</button>`;
+    const selfKilled = killed && killed === v.mySeat;   // 被刀的就是女巫自己 → 允许自救
+    let html = `<div class="ga-title">🧪 女巫行动${killed ? `（${killed} 号今晚被刀${selfKilled ? '，就是你自己' : ''}）` : '（今晚平安夜）'}</div><div class="ga-targets">`;
+    if (info.witchSaveAvailable && killed) {
+      html += selfKilled
+        ? `<button class="ga-btn confirm" id="ga-witch-save">🧡 用解药自救（你今晚被刀）</button>`
+        : `<button class="ga-btn confirm" id="ga-witch-save">🧡 用解药救 ${killed} 号</button>`;
+    }
     if (info.witchPoisonAvailable) {
       html += `<span style="color:var(--text-dim);align-self:center">毒药毒杀：</span>`;
       for (const s of aliveTargets) html += `<button class="ga-btn danger witch-poison" data-seat="${s.seat}">☠ ${s.seat}号</button>`;
@@ -1081,11 +1289,14 @@ function renderGameAction(v) {
     SHOOT: '🔫 选择开枪带走的人', VOTE: '🗳️ 选择放逐对象', PK_VOTE: '⚔️ PK 投票（只能投平票候选人）', SHERIFF_VOTE: '👑 警长投票'
   };
   const allowPass = ['CROW', 'SILENCER', 'WOLF_KILL', 'SHOOT', 'VOTE', 'SHERIFF_VOTE'].includes(kind);
-  // PK 投票只允许在平票候选人之间选择（服务端也只接受这些目标）
+  // PK 投票只允许在平票候选人之间选择；警长投票只允许在【上警的人】之间选择（服务端同样只接受这些目标）
   let pickTargets = aliveTargets;
   if (kind === 'PK_VOTE') {
     const pk = new Set(v.pkCandidates || []);
     pickTargets = (v.seats || []).filter(s => pk.has(s.seat));
+  } else if (kind === 'SHERIFF_VOTE') {
+    const cands = new Set(v.sheriffCandidates || []);
+    pickTargets = (v.seats || []).filter(s => cands.has(s.seat));
   }
   let html = `<div class="ga-title">${hintMap[kind] || '选择目标'}</div><div class="ga-targets">`;
   for (const s of pickTargets) html += `<button class="ga-btn target" data-seat="${s.seat}">${s.seat}号 ${esc(s.nickname)}</button>`;
@@ -1105,27 +1316,39 @@ async function submitAction(payload, okMsg) {
   } catch (e) { toast(e.message, true); }
 }
 
-/* ---------- 白狼王自爆（白天附加可选动作） ---------- */
+/* ---------- 狼人自爆（白天附加可选动作） ---------- */
 /** 服务端约定的自爆标记，需与 LiveGameService.BLOWUP_MARKER 保持一致。 */
 const BLOWUP_MARKER = '__WHITE_WOLF_BLOWUP__';
-/** 白天阶段且自己是存活的白狼王时，显示自爆按钮。 */
+/** 白天阶段且自己是存活狼人时，显示自爆按钮（白狼王自爆需带走一人，普通狼人只自爆）。 */
 function isBlowUpAvailable(v) {
   if (!v || v.phase === 'GAME_OVER') return false;
   const dayPhase = ['DAY_SPEAK', 'SHERIFF_ELECTION', 'DAY_VOTE'].includes(v.phase);
   if (!dayPhase) return false;
   const me = (v.seats || []).find(s => s.seat === v.mySeat);
   const info = v.myInfo || {};
-  return !!(me && me.alive && info.role === '白狼王');
+  return !!(me && me.alive && info.faction === 'WOLF');
 }
-/** 渲染自爆按钮：点击后选择一个目标带走（复用目标选择列表）。 */
+/** 渲染自爆按钮：白狼王点击后再选带走目标；普通狼人点击后二次确认即自爆（不带人）。 */
 function renderBlowUpUI(v) {
   const box = $('game-action');
+  const info = v.myInfo || {};
+  const isWhite = info.role === '白狼王';
   const targets = (v.seats || []).filter(s => s.alive && s.seat !== v.mySeat && !s.idiotRevealed);
   const row = document.createElement('div');
   row.className = 'ga-blowup';
-  row.innerHTML = `<button class="ga-btn danger" id="ga-blowup">💥 白狼王自爆（带走一人后直接入夜）</button>`;
+  row.innerHTML = isWhite
+    ? `<button class="ga-btn danger" id="ga-blowup">💥 白狼王自爆（带走一人后直接入夜）</button>`
+    : `<button class="ga-btn danger" id="ga-blowup">💥 狼人自爆（直接入夜，跳过本轮投票）</button>`;
   box.appendChild(row);
   $('ga-blowup').onclick = () => {
+    if (!isWhite) {
+      row.innerHTML = `<div class="ga-title">💥 确定自爆吗？自爆后你立即出局并直接进入黑夜</div>
+        <div class="ga-targets"><button class="ga-btn danger" id="ga-blowup-ok">确认自爆</button>
+        <button class="ga-btn" id="ga-blowup-cancel">取消</button></div>`;
+      $('ga-blowup-ok').onclick = () => submitAction({ text: BLOWUP_MARKER, target: 0 }, '💥 已自爆，直接入夜');
+      $('ga-blowup-cancel').onclick = () => { row.innerHTML = ''; renderGameAction(v); };
+      return;
+    }
     if (targets.length === 0) { toast('没有可带走的目标', true); return; }
     row.innerHTML = `<div class="ga-title">💥 选择要带走的玩家</div><div class="ga-targets">` +
       targets.map(s => `<button class="ga-btn danger blowup-target" data-seat="${s.seat}">${s.seat}号 ${esc(s.nickname)}</button>`).join('') +
@@ -1240,7 +1463,6 @@ function renderModePanel() {
   $('vm-toggle').checked = !!room.voiceMode;
   $('anon-toggle').checked = !!room.anonymous;
   $('hunt-toggle').checked = !!room.huntCity;
-  $('duo-toggle').checked = !!room.duoMode;
   $('item-toggle').checked = room.itemMatch !== false;
   $('vm-toggle').disabled = !state.voiceAvail;
   $('voice-status').textContent = state.voiceAvail ? '· 语音服务在线' : '· 语音服务未就绪（匿名仍可用）';
@@ -1248,7 +1470,7 @@ function renderModePanel() {
 
 async function saveMode() {
   try {
-    await API.post('/api/room/mode', { voiceMode: $('vm-toggle').checked, anonymous: $('anon-toggle').checked, huntCity: $('hunt-toggle').checked, duoMode: $('duo-toggle').checked });
+    await API.post('/api/room/mode', { voiceMode: $('vm-toggle').checked, anonymous: $('anon-toggle').checked, huntCity: $('hunt-toggle').checked });
     try { await API.post('/api/room/item', { itemMatch: $('item-toggle').checked }); } catch (_) {}
     toast('模式已更新');
   } catch (e) { toast(e.message, true); }
@@ -1313,6 +1535,18 @@ function bindGameUI() {
   const leaveFn = () => leaveGameRoom();
   const leaveBtn = $('btn-leave-game'); if (leaveBtn) leaveBtn.addEventListener('click', leaveFn);
   const settleLeave = $('btn-settle-leave'); if (settleLeave) settleLeave.addEventListener('click', leaveFn);
+  // 3D 视角开关：环境不支持 WebGL 时直接隐藏按钮
+  const t3d = $('btn-toggle-3d');
+  if (t3d) {
+    if (!scene3dReady()) t3d.classList.add('hidden');
+    else t3d.addEventListener('click', () => applyMode3d(!game.mode3d));
+  }
+  const r3d = $('btn-3d-reset');
+  if (r3d) r3d.addEventListener('click', () => { if (window.Scene3D) window.Scene3D.resetCamera(); });
+  const w3d = $('btn-3d-wide');
+  if (w3d) w3d.addEventListener('click', () => { if (window.Scene3D) window.Scene3D.setCamera(0, 0.62, 16.5); });
+  const n3d = $('btn-3d-near');
+  if (n3d) n3d.addEventListener('click', () => { if (window.Scene3D) window.Scene3D.setCamera(0, 0.34, 7.4); });
 }
 
 /** 对局结束后返回房间：关闭结算弹窗，回到房间等待页（若房间已解散则回大厅），本局对局视图不再展示。 */
@@ -1320,6 +1554,7 @@ async function returnToRoom() {
   $('modal-settle').classList.add('hidden');
   if (game.tick) { clearInterval(game.tick); game.tick = null; }
   game.view = null;
+  pauseScene3d();
   try { VOICE.disconnect(); } catch (_) {}
   clearVoiceCaption(); game.talkingName = null; game.prevVoiceMode = false;
   const rr = $('btn-return-room'); if (rr) rr.classList.add('hidden');
@@ -1338,6 +1573,7 @@ async function leaveGameRoom() {
     await API.post('/api/room/leave');
     try { VOICE.disconnect(); } catch (_) {}
     clearVoiceCaption(); game.view = null; game.prevVoiceMode = false;
+    pauseScene3d();
     $('modal-settle').classList.add('hidden');
     state.room = null; state.mySeat = null; state.isSpectator = false;
     showView('lobby');
@@ -1358,7 +1594,12 @@ async function onGameEnded(msg) {
 }
 
 /* ================= M4 装饰渲染 + 主页 + 商店 ================= */
-const TYPE_LABEL = { AVATAR: '头像', FRAME: '头像框', TITLE: '称号', NICKCOLOR: '昵称颜色', FUNCTION: '功能道具' };
+const TYPE_LABEL = { AVATAR: '头像', FRAME: '头像框', TITLE: '称号', NICKCOLOR: '昵称颜色', FUNCTION: '功能道具', SKIN3D: '3D 皮肤' };
+/** 3D 皮肤展示名/图标（与后端 ShopCatalog 的 asset 对应）。 */
+const SKIN3D_LABEL = { villager: '月夜村民', jester: '疯癫弄臣', ghost: '游魂', wolf: '狼影', knight: '铁卫骑士',
+  witch: '月影女巫', frost: '霜灵', vampire: '血族伯爵', shadow: '影舞者', royal: '王族', reaper: '死神' };
+const SKIN3D_ICON = { villager: '🧑‍🌾', jester: '🃏', ghost: '👻', wolf: '🐺', knight: '🛡️',
+  witch: '🧙', frost: '❄️', vampire: '🧛', shadow: '🦇', royal: '👑', reaper: '💀' };
 
 function renderAvatarHtml(o, size) {
   // 安全：头像地址仅允许白名单前缀且经 esc 转义；颜色值经白名单校验，非法回退默认色，防止内联样式/属性注入。
@@ -1404,6 +1645,7 @@ function renderProfile(p, inv, trans, stats) {
   eq.innerHTML = '';
   const slots = [
     { label: '头像', value: p.avatarUrl ? '自定义头像' : ('默认 #' + p.avatarId), type: 'AVATAR' },
+    { label: '3D 皮肤', value: p.skin3d ? (SKIN3D_LABEL[p.skin3d] || p.skin3d) : '默认村民', type: 'SKIN3D' },
     { label: '头像框', value: p.frameName || '无', type: 'FRAME', color: p.frameColor },
     { label: '称号', value: p.title || '无', type: 'TITLE' },
     { label: '昵称颜色', value: p.nickColor || '默认', type: 'NICKCOLOR', color: p.nickColor },
@@ -1473,6 +1715,7 @@ function renderProfile(p, inv, trans, stats) {
 
 function itemIcon(it) {
   if (it.type === 'AVATAR') return avatarEmoji(+it.asset);
+  if (it.type === 'SKIN3D') return SKIN3D_ICON[it.asset] || '🧍';
   if (it.type === 'NICKCOLOR' || it.type === 'FRAME') return `<span style="display:inline-block;width:26px;height:26px;border-radius:50%;background:${safeColor(it.asset, 'var(--border-dim)')}"></span>`;
   if (it.type === 'FUNCTION') return ({ REVEAL: '🔍', SHIELD: '🛡', SILENCE: '🤐', DOUBLE: '✨', DOUBLE_VOTE: '🗳️', IMMUNE: '🎎', REVIVE: '💗', IRON: '🦾', EXPDOUBLE: '📈', SHIELD_FULL: '💠' })[it.asset] || '🧪';
   return '🏅';
@@ -1492,7 +1735,7 @@ function renderShop(catalog, gold) {
   box.innerHTML = '';
   const groups = {};
   for (const it of catalog) (groups[it.type] ||= []).push(it);
-  for (const type of ['FUNCTION', 'AVATAR', 'FRAME', 'TITLE', 'NICKCOLOR']) {
+  for (const type of ['FUNCTION', 'SKIN3D', 'AVATAR', 'FRAME', 'TITLE', 'NICKCOLOR']) {
     const items = groups[type];
     if (!items || !items.length) continue;
     const h = document.createElement('div');
@@ -1754,58 +1997,13 @@ function renderReplayRoles(seatRoles) {
 function replayLineHtml(e) {
   const kind = ({ SPEECH: '🎤', LAST_WORDS: '💀', PLAYER_DIED: '☠️', NIGHT_ACTION: '🌙', NIGHT_RESOLVE: '⚖️',
     DAWN_ANNOUNCE: '🌅', VOTE_RESULT: '🗳️', VOTE_DETAIL: '🗳', VOTE_TIE: '⚔️', SHOOT: '🔫', IDIOT_REVEAL: '🤪',
-    WHITE_WOLF_BLOWUP: '💥', SHERIFF_WIN: '👑', SHERIFF_SIGNUP: '🙋', ITEM_REVEAL: '🔍', ITEM_EFFECT: '🧪',
+    WHITE_WOLF_BLOWUP: '💥', SHERIFF_WIN: '👑', SHERIFF_SIGNUP: '🙋', SHERIFF_WITHDRAW: '🙋‍♂️', ITEM_REVEAL: '🔍', ITEM_EFFECT: '🧪',
     GAME_OVER: '🏁', GAME_START: '🎬' })[e.type] || '·';
   return `<div class="rp-item ${e.type.includes('NIGHT') ? 'rp-night' : ''}"><span class="rp-day">第${e.day}天</span> ${kind} ${esc(replayDetailZh(e))}</div>`;
 }
 
-function replayDetailZh(e) {
-  const d = e.detail || '';
-  const seat = (n) => n ? (n + '号') : '';
-  switch (e.type) {
-    case 'GAME_START': return '对局开始';
-    case 'NIGHT_ACTION': {
-      if (d.startsWith('SEER_CHECK=')) return `预言家查验 ${seat(e.target)} = ${d.endsWith('WOLF') ? '狼人' : '好人'}`;
-      const base = d.split('=')[0];
-      const map = {
-        GUARD: `守卫守护 ${seat(e.target) || '空'}`,
-        WOLF_VOTE: `狼人(${seat(e.actor)})提议刀 ${seat(e.target) || '空刀'}`,
-        WOLF_KILL_RESOLVED: `狼队决定刀 ${seat(e.target) || '空刀'}`,
-        WITCH_SAVE: `女巫(${seat(e.actor)})救 ${seat(e.target)}`,
-        WITCH_POISON: `女巫(${seat(e.actor)})毒 ${seat(e.target)}`,
-        CROW_ACCUSE: `乌鸦诽谤 ${seat(e.target) || '无'}`,
-        SILENCER: `禁言长老禁言 ${seat(e.target) || '无'}`,
-      };
-      return map[base] || d;
-    }
-    case 'NIGHT_RESOLVE': {
-      if (d.startsWith('wolfKill=')) {
-        const p = {}; d.split(' ').forEach(kv => { const [k, v] = kv.split('='); p[k] = v; });
-        return `夜晚结算：狼刀${seat(+p.wolfKill) || '无'} 守护${seat(+p.guard) || '无'} 救${seat(+p.save) || '无'} 毒${seat(+p.poison) || '无'}`;
-      }
-      return d;
-    }
-    case 'DAWN_ANNOUNCE': {
-      const m = d.match(/\[([\d,\s]*)\]/); const ids = m ? m[1].split(',').map(s => s.trim()).filter(Boolean) : [];
-      return ids.length ? `天亮了，夜晚出局：${ids.map(i => i + '号').join('、')}` : '天亮了，昨夜平安';
-    }
-    case 'PLAYER_DIED': return `${seat(e.actor)} 出局（${causeZh(d)}）`;
-    case 'SPEECH': return `${seat(e.actor)} 发言：${d}`;
-    case 'LAST_WORDS': return `${seat(e.actor)} 遗言：${d}`;
-    case 'VOTE_RESULT': return e.actor ? `投票结果：${seat(e.actor)} 被放逐` : `投票结果：${d}`;
-    case 'VOTE_DETAIL': return d;
-    case 'VOTE_TIE': return d;
-    case 'SHOOT': return `${seat(e.actor)} ${d}${e.target ? '，带走 ' + seat(e.target) : ''}`;
-    case 'IDIOT_REVEAL': return `${seat(e.actor)} 白痴翻牌免死`;
-    case 'WHITE_WOLF_BLOWUP': return `${seat(e.actor)} 白狼王自爆${e.target ? '，带走 ' + seat(e.target) : ''}`;
-    case 'SHERIFF_WIN': return e.actor ? `${seat(e.actor)} 当选警长` : `警长：${d}`;
-    case 'SHERIFF_SIGNUP': return `${seat(e.actor)} ${d === '上警' ? '上警竞选' : '不上警'}`;
-    case 'ITEM_REVEAL': return `${seat(e.actor)} 使用查杀卡：${seat(e.target)} 是${d}`;
-    case 'ITEM_EFFECT': return `${seat(e.actor)} ${d}`;
-    case 'GAME_OVER': return `游戏结束，${d.replace('winner=', '')}获胜`;
-    default: return `${seat(e.actor)} ${d}`;
-  }
-}
+/* 回放与对局记录共用同一套中文文案，保证两处展示一致、无英文残留。 */
+function replayDetailZh(e) { return eventTextZh(e); }
 
 function replayStep() {
   if (replay.idx >= replay.events.length) { if (replay.timer) { clearInterval(replay.timer); replay.timer = null; } return; }
@@ -1938,6 +2136,20 @@ function onGameChat(msg) {
   box.appendChild(el); while (box.children.length > 60) box.removeChild(box.firstChild); box.scrollTop = box.scrollHeight;
 }
 async function sendGameChat() { const inp = $('gc-input'); if (!inp) return; const t = inp.value.trim(); if (!t) return; inp.value = ''; try { await API.post('/api/game/chat', { text: t }); } catch (e) { toast(e.message, true); } }
+/* 狼队夜间频道：消息只推给存活的狼，因此非狼的连接根本收不到该类型消息 */
+function onWolfChat(msg) {
+  const box = $('wolf-chat'); if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'gc-line' + (msg.seat && game.view && msg.seat === game.view.mySeat ? ' me' : '');
+  el.innerHTML = `<span class="gc-name">${esc(msg.name)}</span><span class="gc-text">${esc(msg.text)}</span>`;
+  box.appendChild(el); while (box.children.length > 60) box.removeChild(box.firstChild); box.scrollTop = box.scrollHeight;
+}
+async function sendWolfChat() {
+  const inp = $('wc-input'); if (!inp) return;
+  const t = inp.value.trim(); if (!t) return;
+  inp.value = '';
+  try { await API.post('/api/game/wolf-chat', { text: t }); } catch (e) { toast(e.message, true); }
+}
 function showNarrator(msg) {
   const el = $('voice-caption'); if (!el) return; el.classList.remove('hidden');
   const line = document.createElement('div'); line.className = 'vc-line narrator';
@@ -1989,6 +2201,8 @@ function bindExtrasUI() {
   $('btn-download-app').addEventListener('click', openDownloads);
   $('btn-download-close').addEventListener('click', () => $('modal-download').classList.add('hidden'));
   const gs = $('gc-send'); if (gs) gs.addEventListener('click', sendGameChat);
+  const ws2 = $('wc-send'); if (ws2) ws2.addEventListener('click', sendWolfChat);
+  const wi2 = $('wc-input'); if (wi2) wi2.addEventListener('keydown', e => { if (e.key === 'Enter') sendWolfChat(); });
   const gi = $('gc-input'); if (gi) gi.addEventListener('keydown', e => { if (e.key === 'Enter') sendGameChat(); });
   $('btn-save-profile-info').addEventListener('click', saveProfileInfo);
   $('btn-redeem').addEventListener('click', doRedeem);
@@ -2205,6 +2419,92 @@ function bindTicketsUI() {
   $('tk-cat').addEventListener('change', () => { const f = document.querySelector('.tk-target-row'); if (f) f.classList.toggle('hidden', $('tk-cat').value !== '举报'); });
 }
 
+/* ================= 在线客服（AI 客服 + 转人工） =================
+   对话存在工单里：客服回复为 AI 自动生成（author=在线客服），管理员接手后显示为「人工客服」。
+   答复是异步生成的，所以面板打开期间会轻量轮询，收到 WS 推送也会立即刷新。 */
+const SUP = {
+  timer: null,
+  lastCount: -1,
+  open() {
+    $('modal-support').classList.remove('hidden');
+    this.load();
+    this.poll(true);
+    setTimeout(() => { const i = $('sup-input'); if (i) i.focus(); }, 60);
+  },
+  close() {
+    $('modal-support').classList.add('hidden');
+    this.poll(false);
+  },
+  poll(on) {
+    clearInterval(this.timer); this.timer = null;
+    if (on) this.timer = setInterval(() => this.load(), 3000);
+  },
+  async load() {
+    if ($('modal-support').classList.contains('hidden')) return;
+    try {
+      const r = await API.get('/api/tickets/support');
+      const thread = r.thread || [];
+      // 内容没变化就不重绘，避免打断输入/滚动
+      const sig = thread.length + ':' + (thread[thread.length - 1] ? thread[thread.length - 1].content : '');
+      if (sig === this._sig) return;
+      this._sig = sig;
+      this.render(r, thread);
+    } catch (e) { /* 静默：轮询失败不打扰用户 */ }
+  },
+  render(r, thread) {
+    const box = $('sup-msgs');
+    if (!thread.length) {
+      box.innerHTML = '<div class="sup-empty">你好，我是本站在线客服 👋<br>把遇到的问题发给我，我会尽快帮你处理；需要真人协助也可以点下面的「转人工客服」。</div>';
+    } else {
+      box.innerHTML = thread.map((m) => {
+        const me = !m.admin && !m.ai;
+        const who = m.ai ? '在线客服' : (m.admin ? '人工客服' : '我');
+        const at = (m.at || '').replace('T', ' ').slice(5, 16);
+        return `<div class="sup-msg ${me ? 'me' : 'agent'}"><span class="sup-who">${esc(who)}</span>${esc(m.content)}<span class="sup-at">${esc(at)}</span></div>`;
+      }).join('');
+    }
+    box.scrollTop = box.scrollHeight;
+    const badge = $('sup-badge');
+    if (r.human) { badge.textContent = '人工客服'; badge.classList.add('wait'); }
+    else if (r.needsHuman) { badge.textContent = '正在转接人工…'; badge.classList.add('wait'); }
+    else { badge.textContent = '在线'; badge.classList.remove('wait'); }
+    $('sup-human').classList.toggle('hidden', !!r.human || !!r.needsHuman);
+  },
+  async send() {
+    const inp = $('sup-input');
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+    // 先本地回显，避免等接口往返才看到自己的话
+    const box = $('sup-msgs');
+    if (box.querySelector('.sup-empty')) box.innerHTML = '';
+    box.insertAdjacentHTML('beforeend',
+      `<div class="sup-msg me"><span class="sup-who">我</span>${esc(text)}</div>`);
+    box.scrollTop = box.scrollHeight;
+    this._sig = '';   // 强制下一次 load 重绘
+    try {
+      await API.post('/api/tickets/support/message', { content: text });
+      setTimeout(() => this.load(), 400);
+    } catch (e) { toast(e.message, true); }
+  },
+  async human() {
+    try {
+      await API.post('/api/tickets/support/human', {});
+      toast('已为你转接人工客服');
+      this._sig = ''; this.load();
+    } catch (e) { toast(e.message, true); }
+  },
+};
+function bindSupportUI() {
+  const open = $('btn-open-support');
+  if (open) open.addEventListener('click', () => SUP.open());
+  $('sup-send').addEventListener('click', () => SUP.send());
+  $('sup-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); SUP.send(); } });
+  $('sup-human').addEventListener('click', () => SUP.human());
+  $('sup-close').addEventListener('click', () => SUP.close());
+  $('modal-support').addEventListener('click', (e) => { if (e.target === $('modal-support')) SUP.close(); });
+}
+
 /* ================= VIP 会员 ================= */
 const VIP_NAMES = { 1: '白银会员', 2: '黄金会员', 3: '钻石会员' };
 function vipBadge(lv) { return lv > 0 ? `<span class="vip-badge v${lv}">👑 ${VIP_NAMES[lv] || 'VIP'}</span>` : ''; }
@@ -2300,15 +2600,13 @@ const DM = {
 };
 
 function initLang() {
-  const opts = (window.LANGS || []).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-  ['lang-select', 'lang-select-auth'].forEach((id) => {
-    const el = $(id); if (!el) return;
-    el.innerHTML = opts; el.value = window.getLang();
-    el.onchange = () => window.setLang(el.value);
-  });
+  // 语言选择器由 i18n.js 的 mountLangPickers() 统一挂载（登录页品牌区 + 顶栏地球按钮），
+  // 这里只负责初始化文案，以及切换语言后重绘当前视图（动态渲染的界面文字）。
+  if (window.mountLangPickers) window.mountLangPickers();
+  if (window.refreshLangPickers) window.refreshLangPickers();
   window.applyI18n();
   document.addEventListener('ww:lang', () => {
-    ['lang-select', 'lang-select-auth'].forEach((id) => { const el = $(id); if (el) el.value = window.getLang(); });
+    if (window.refreshLangPickers) window.refreshLangPickers();
     rerenderCurrent();
   });
 }
@@ -2455,6 +2753,7 @@ async function boot() {
   loadMaintenance();
   bindExtrasUI();
   bindTicketsUI();
+  bindSupportUI();
   const q0 = new URLSearchParams(location.search);
   const urlTok = q0.get('t');
   const joinNo = q0.get('join');

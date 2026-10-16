@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 板子编辑器：预设一键套用，或逐角色自定义数量；保存到当前房间（与网页一致）。
 class BoardEditorScreen extends StatefulWidget {
@@ -84,16 +85,16 @@ class _BoardEditorScreenState extends State<BoardEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
+    if (_loading) return Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
     final err = _validate();
     return Scaffold(
-      appBar: AppBar(title: const Text('板子配置')),
+      appBar: AppBar(title: const Tx('板子配置')),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: err == null ? kAccent : kPanel2,
         foregroundColor: const Color(0xFF1A1206),
         onPressed: _save,
         icon: const Icon(Icons.check),
-        label: const Text('保存板子'),
+        label: const Tx('保存板子'),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 90),
@@ -105,7 +106,7 @@ class _BoardEditorScreenState extends State<BoardEditorScreen> {
             children: [
               for (final p in _presets)
                 ChoiceChip(
-                  label: Text('${p['name']}'),
+                  label: Tx('${p['name']}'),
                   selected: _boardName == p['id'],
                   selectedColor: kAccent.withOpacity(.25),
                   onSelected: (_) => _applyPreset(p),
@@ -118,7 +119,7 @@ class _BoardEditorScreenState extends State<BoardEditorScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(color: kPanel, borderRadius: BorderRadius.circular(10), border: Border.all(color: err == null ? kBorder : kBlood)),
-            child: Text(
+            child: Tx(
               '合计 $_total 人 · 狼人 $_wolves · 好人 ${_total - _wolves}${err != null ? '  ⚠️ $err' : '  ✅ 合法'}',
               style: TextStyle(color: err == null ? kGreen : kBlood, fontWeight: FontWeight.bold),
             ),
@@ -138,12 +139,12 @@ class _BoardEditorScreenState extends State<BoardEditorScreen> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         dense: true,
-        title: Text('$cn', style: TextStyle(color: isWolf ? kBlood : kMoon, fontWeight: FontWeight.bold)),
+        title: Tx('$cn', style: TextStyle(color: isWolf ? kBlood : kMoon, fontWeight: FontWeight.bold)),
         trailing: SizedBox(
           width: 130,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(splashRadius: 18, iconSize: 18, onPressed: () => setState(() => _counts[name] = (val - 1).clamp(0, max)), icon: const Icon(Icons.remove_circle_outline)),
-            SizedBox(width: 26, child: Text('$val', textAlign: TextAlign.center, style: const TextStyle(color: kAccent, fontWeight: FontWeight.bold))),
+            SizedBox(width: 26, child: Tx('$val', textAlign: TextAlign.center, style: TextStyle(color: kAccent, fontWeight: FontWeight.bold))),
             IconButton(splashRadius: 18, iconSize: 18, onPressed: () => setState(() => _counts[name] = (val + 1).clamp(0, max)), icon: const Icon(Icons.add_circle_outline)),
           ]),
         ),

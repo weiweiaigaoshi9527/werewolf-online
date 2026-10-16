@@ -12,31 +12,18 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
-    private final com.werewolf.service.ProfileService profileService;
 
-    public AuthController(AuthService authService, com.werewolf.service.ProfileService profileService) {
+    public AuthController(AuthService authService) {
         this.authService = authService;
-        this.profileService = profileService;
     }
 
-    public record AuthRequest(String username, String password, String nickname, String qq, Integer rememberDays) {}
+    public record AuthRequest(String username, String password, String nickname, Integer rememberDays, String scope) {}
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody AuthRequest req) {
-        // QQ 号可选：填了必须合法（5-11 位数字）
-        String qq = req.qq() == null ? "" : req.qq().trim();
-        if (!qq.isEmpty() && !AuthService.validQq(qq)) {
-            return ResponseEntity.badRequest().body(Map.of("error", "QQ 号需为 5-11 位数字（不以 0 开头）"));
-        }
         AuthService.RegisterResult r = authService.register(req.username(), req.password(), req.nickname());
         if (r.error() != null) {
             return ResponseEntity.badRequest().body(Map.of("error", r.error()));
-        }
-        if (!qq.isEmpty()) {
-            // 注册即填 QQ：直接视为已满足（不发补填奖励），并立即拉取 QQ 头像（失败静默，不阻塞注册）
-            try {
-                profileService.setQqAtRegister(r.user(), qq);
-            } catch (Exception ignored) {}
         }
         AuthService.LoginResult login = authService.login(req.username(), req.password(), 1);
         return ResponseEntity.ok(Map.of(
@@ -47,7 +34,8 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthRequest req) {
         int remember = req.rememberDays() == null ? 0 : req.rememberDays();
-        AuthService.LoginResult r = authService.login(req.username(), req.password(), remember);
+        // scope=admin 时登录到「后台会话域」：与玩家端会话互不挤掉（同一账号可同时登录两端）
+        AuthService.LoginResult r = authService.login(req.username(), req.password(), remember, req.scope());
         if (r.error() != null) {
             return ResponseEntity.badRequest().body(Map.of("error", r.error()));
         }
@@ -91,9 +79,6 @@ public class AuthController {
         m.put("gold", u.getGold());
         m.put("admin", u.isAdmin());
         m.put("banned", u.isBanned());
-        m.put("qq", u.getQq());
-        // needQq=true：还没填 QQ 号，前端据此弹强制补填窗（填完奖 1000 金币）
-        m.put("needQq", u.getQq() == null || u.getQq().isBlank());
         int vip = (u.getVipLevel() > 0 && (u.getVipExpireAt() == null || u.getVipExpireAt().isAfter(java.time.LocalDateTime.now()))) ? u.getVipLevel() : 0;
         m.put("vipLevel", vip);
         return m;

@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -32,10 +34,52 @@ public class OpenAiClient implements AiProvider {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
     private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient http = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(15))
-            .build();
+    /** 按代理地址缓存 HttpClient（空串=直连）：避免每次调用都重建连接池。 */
+    private final java.util.concurrent.ConcurrentHashMap<String, HttpClient> clients =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 取（或新建）对应代理配置的 HttpClient。
+     * 说明：某些网络环境下到 AI 服务的直连会被中间设备重置（Connection reset），
+     * 此时可配置 HTTP 代理绕过；未配置代理时行为与之前完全一致（直连）。
+     */
+    private HttpClient clientFor(String proxyUrl) {
+        String key = (proxyUrl == null || proxyUrl.isBlank()) ? "" : proxyUrl.trim();
+        return clients.computeIfAbsent(key, k -> {
+            HttpClient.Builder b = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .connectTimeout(Duration.ofSeconds(15));
+            if (!k.isEmpty()) {
+                InetSocketAddress addr = parseProxy(k);
+                if (addr != null) b.proxy(ProxySelector.of(addr));
+            }
+            return b.build();
+        });
+    }
+
+    /** 解析代理地址：支持 http://host:port、host:port；非 http 代理或无法解析时按直连处理。 */
+    private static InetSocketAddress parseProxy(String s) {
+        try {
+            String v = s.trim();
+            if (v.contains("://")) {
+                URI u = URI.create(v);
+                String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+                if (!scheme.startsWith("http")) {
+                    log.warn("AI 代理仅支持 http 代理，已忽略: {}", s);
+                    return null;
+                }
+                if (u.getHost() == null || u.getHost().isBlank()) return null;
+                int port = u.getPort() > 0 ? u.getPort() : 8080;
+                return new InetSocketAddress(u.getHost(), port);
+            }
+            int idx = v.lastIndexOf(':');
+            if (idx > 0) return new InetSocketAddress(v.substring(0, idx), Integer.parseInt(v.substring(idx + 1).trim()));
+            return new InetSocketAddress(v, 8080);
+        } catch (Exception e) {
+            log.warn("AI 代理地址无法解析，按直连处理: {} ({})", s, e.getMessage());
+            return null;
+        }
+    }
 
     /** 可重试的瞬态 HTTP 状态码（其余 4xx/鉴权类错误一律不重试）。 */
     private static final Set<Integer> RETRYABLE_STATUS = Set.of(408, 409, 425, 429, 500, 502, 503, 504, 529);
@@ -78,7 +122,7 @@ public class OpenAiClient implements AiProvider {
                 // 用异步 + 硬超时兜底：即便底层 .timeout() 因连接停滞未触发，也能在 timeout+3s 内强制返回并释放线程，
                 // 避免 aiAct 线程被永久挂起（cached 线程池会因此无限泄漏线程）。
                 CompletableFuture<HttpResponse<String>> fut =
-                        http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                        clientFor(o.proxyUrl()).sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
                 HttpResponse<String> resp;
                 try {
                     resp = fut.get(o.timeoutSeconds() + 3L, TimeUnit.SECONDS);
@@ -96,12 +140,11 @@ public class OpenAiClient implements AiProvider {
                 JsonNode msg = root.path("choices").path(0).path("message");
                 String content = stripThinking(msg.path("content").asText(""));
                 if (content.isBlank()) {
-                    // 推理型模型可能把最终答复放在 content 之外；退回 reasoning_content 兜底。
-                    // 注意：兜底内容可能是模型的“思考过程”，调用方（AiPolicy/SpeechSanitizer）会再做清洗与拦截。
-                    content = stripThinking(msg.path("reasoning_content").asText(""));
-                }
-                if (content.isBlank()) {
-                    throw new RuntimeException("响应无内容: " + truncate(respBody));
+                    // 【重要】绝不把 reasoning_content（模型的思考过程）当作回复：
+                    // 那是内部分析（含引号引用、等号注释、英文残片），一旦当发言播报就会出现
+                    // "11号's "..." , 警徽流 = 预言家死后警徽移交顺序" 这类乱码（线上事故根因）。
+                    // 这里视为「无有效内容」，抛出让上层重试 / 降级为中文兜底台词。
+                    throw new RuntimeException("响应无内容（模型把 token 预算耗在思考上，content 为空）");
                 }
                 return content.trim();
             } catch (Exception e) {

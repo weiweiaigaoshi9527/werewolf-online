@@ -16,7 +16,6 @@ run "audit_json.mjs（changelog/manifest 静态审计）" node audit_json.mjs
 run "audit_manifest.mjs（下载清单一致性）" node audit_manifest.mjs
 run "verify11.mjs（11 轮修复回归 9 项）" node verify11.mjs
 run "probe.mjs（13 项功能探针）" node probe.mjs
-run "probe_duo.mjs（双人组队链路）" node probe_duo.mjs
 run "probe400.mjs（400 错误路径）" node probe400.mjs
 run "leaktest.mjs（信息泄露 120 轮）" node leaktest.mjs
 run "narrtest.mjs（旁白时间轴一致性）" node narrtest.mjs

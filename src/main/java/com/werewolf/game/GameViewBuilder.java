@@ -19,7 +19,7 @@ import java.util.*;
 public final class GameViewBuilder {
 
     private static final Set<String> PUBLIC_FEED = Set.of(
-            GameEvent.DAWN_ANNOUNCE, GameEvent.SHERIFF_SIGNUP, GameEvent.SHERIFF_WIN,
+            GameEvent.DAWN_ANNOUNCE, GameEvent.SHERIFF_SIGNUP, GameEvent.SHERIFF_WITHDRAW, GameEvent.SHERIFF_WIN,
             GameEvent.LAST_WORDS, GameEvent.SPEECH, GameEvent.VOTE_RESULT, GameEvent.VOTE_DETAIL, GameEvent.VOTE_TIE,
             GameEvent.PLAYER_DIED, GameEvent.SHOOT, GameEvent.IDIOT_REVEAL,
             GameEvent.WHITE_WOLF_BLOWUP, GameEvent.GAME_OVER);
@@ -34,11 +34,24 @@ public final class GameViewBuilder {
 
     public static Map<String, Object> build(GameEngine g, Map<Integer, SeatInfo> seats, int viewerSeat,
                                             boolean anonymous, boolean voiceMode, VoiceProperties props, int[] showOf) {
+        return build(g, seats, viewerSeat, anonymous, voiceMode, props, showOf, false);
+    }
+
+    /**
+     * @param spectatorOmniscient 观战席是否拥有上帝视角（全知）。
+     *        仅用于「全 AI 队局」这类没有真人参与的观战房：全员皆 AI，不存在作弊风险，
+     *        让观战者看到全部身份与夜晚私密行动，观感更好。
+     *        普通真人房间必须传 false（默认），避免任意登录用户观战即看全身份。
+     */
+    public static Map<String, Object> build(GameEngine g, Map<Integer, SeatInfo> seats, int viewerSeat,
+                                            boolean anonymous, boolean voiceMode, VoiceProperties props, int[] showOf,
+                                            boolean spectatorOmniscient) {
         boolean over = g.isGameOver();
         // 信息隔离：只有“对局结束”才亮全部身份。观战席(viewerSeat==0)默认按普通玩家视角下发公开信息，
         // 避免任意登录用户进入任意房间观战即可看到全部身份与夜晚私密行动（作弊/信息泄露）。
         // 如需赛后复盘式的上帝视角，请查看回放（/api/game/replay，已校验仅参与者可访问）。
-        boolean omniscient = over;
+        // 例外：全 AI 观战房（spectatorOmniscient=true）无真人参与，允许观战者全知。
+        boolean omniscient = over || (viewerSeat == 0 && spectatorOmniscient);
         Set<Integer> revealed = revealedSeats(g);
         List<Map<String, Object>> seatViews = new ArrayList<>();
         for (SeatInfo si : seats.values()) {
@@ -68,6 +81,9 @@ public final class GameViewBuilder {
             sv.put("isSheriff", p.isSheriff);
             sv.put("silenced", p.silencedToday);
             sv.put("idiotRevealed", p.idiotRevealed);
+            // 3D 视角的角色造型。匿名模式下 si.skin3d 已在开局被确定性打乱（见 LiveGameService.start），
+            // 因此这里直接下发即可——既不会泄露身份，也保证所有客户端看到的一致。
+            sv.put("skin3d", si.skin3d == null ? "villager" : si.skin3d);
             sv.put("userId", anonymous ? null : si.userId); // 非匿名可点击查看档案（机器人为负数id→随机档案）
             // 角色可见性：自己 / 已公开翻牌（白痴、白狼王自爆）/ 游戏结束。
             // 注意：死亡本身不公开身份（狼人杀标准规则），否则夜晚被刀者身份会被即时泄露，破坏信息结构。
@@ -95,16 +111,27 @@ public final class GameViewBuilder {
         view.put("anonymous", anonymous);
         view.put("voiceMode", voiceMode);
         view.put("voiceAvailable", props != null && props.isEnabled()); // 语音服务可用：AI 文本会转语音、可收旁白/字幕
+        // 房间聊天只在「全真人局」开放：只要有一个 AI/托管座位就关闭（服务端也会拒绝发送）
+        boolean anyBot = seats.values().stream().anyMatch(s -> s.bot);
+        view.put("chatEnabled", !anyBot);
         if (ph == GamePhase.DAY_VOTE_TIEBREAK) {   // 平票 PK：只允许在平票候选人之间投票
             List<Integer> pk = new ArrayList<>();
             for (int s : g.tiebreakCandidates()) pk.add(sh(showOf, s));
             view.put("pkCandidates", pk);
+        }
+        if (ph == GamePhase.SHERIFF_ELECTION) {    // 警长竞选：投票只能在【上警的人】之间选
+            List<Integer> cands = new ArrayList<>();
+            for (int s : g.sheriffCandidates()) cands.add(sh(showOf, s));
+            view.put("sheriffCandidates", cands);
         }
         view.put("seats", seatViews);
         // 对局记录：观战/结束=全知；普通玩家=公开；狼人额外可见狼队内部刀口投票（仅 WOLF_VOTE/刀口结算，不含验人/用药等他人私密）
         Player viewer = viewerSeat != 0 ? g.bySeat(viewerSeat) : null;
         boolean viewerWolf = !over && viewer != null && viewer.isWolf();
         view.put("feed", omniscient ? allFeed(g, showOf) : feed(g, false, viewerWolf, showOf));
+        // 狼队夜间频道：只有存活的狼、且处于夜晚时才开放（消息只推给存活的狼，且不写入对局记录）
+        view.put("wolfChatEnabled", !over && viewer != null && viewer.alive && viewer.isWolf()
+                && ph.name().startsWith("NIGHT"));
         view.put("myInfo", myInfo(g, viewerSeat, over, showOf));
         if (over) {
             view.put("winner", g.winner() == com.werewolf.rules.Faction.WOLF ? "狼人阵营" : "好人阵营");
@@ -114,8 +141,9 @@ public final class GameViewBuilder {
 
     private static Set<Integer> revealedSeats(GameEngine g) {
         Set<Integer> s = new HashSet<>();
-        // 狼人杀惯例：出局即翻牌，死者身份对全场公开（与 AI 视角的公开信息一致）
-        for (Player p : g.players()) if (!p.alive) s.add(p.seat);
+        // 说明：出局【不翻牌】——死亡不公开身份（标准狼人杀规则，避免死讯即时泄露身份）。
+        // 只有主动亮明身份的事件才公开：白痴翻牌、白狼王自爆。
+        // 对局结束后由 omniscient 分支统一亮全部身份。
         for (GameEvent e : g.events()) {
             if (e.type().equals(GameEvent.IDIOT_REVEAL) || e.type().equals(GameEvent.WHITE_WOLF_BLOWUP)) {
                 s.add(e.actorSeat());
@@ -184,14 +212,6 @@ public final class GameViewBuilder {
         info.put("faction", me.role.faction().name());
         info.put("alive", me.alive);
         info.put("accused", me.accusedByCrow);
-
-        // 双人组队：告诉玩家自己的队友显示座位（服务端只保证同阵营，不泄露队友具体角色）
-        for (int[] d : g.duos()) {
-            if (d[0] == viewerSeat || d[1] == viewerSeat) {
-                info.put("partner", sh(showOf, d[0] == viewerSeat ? d[1] : d[0]));
-                break;
-            }
-        }
 
         // 狼人队友
         if (me.isWolf()) {

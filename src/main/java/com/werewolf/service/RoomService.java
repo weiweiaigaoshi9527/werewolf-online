@@ -1,11 +1,9 @@
 package com.werewolf.service;
 
 import com.werewolf.model.Room;
-import com.werewolf.model.RoomDuo;
 import com.werewolf.model.RoomPlayer;
 import com.werewolf.model.User;
 import com.werewolf.config.VoiceProperties;
-import com.werewolf.repo.RoomDuoRepository;
 import com.werewolf.repo.RoomPlayerRepository;
 import com.werewolf.repo.RoomRepository;
 import com.werewolf.repo.UserRepository;
@@ -81,15 +79,15 @@ public class RoomService {
     private final BoardService boardService;
     private final VoiceProperties vprops;
     private final VipService vipService;
-    private final com.werewolf.repo.RoomDuoRepository duoRepo;
-    /** 组队邀请（内存态）：roomId -> [fromUserId, toUserId] */
-    private final java.util.Map<Long, java.util.List<long[]>> duoInvites = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 观战房被解散时需要终止进行中的对局，避免留下无人看管的空转对局。 */
+    private final com.werewolf.game.LiveGameService gameService;
     private final SecureRandom random = new SecureRandom();
 
     public RoomService(RoomRepository roomRepo, RoomPlayerRepository playerRepo,
                        UserRepository userRepo, PresenceService presence, RoomMembership membership,
                        DecorationService decoration, BoardService boardService, VoiceProperties vprops,
-                       VipService vipService, com.werewolf.repo.RoomDuoRepository duoRepo) {
+                       VipService vipService,
+                       com.werewolf.game.LiveGameService gameService) {
         this.roomRepo = roomRepo;
         this.playerRepo = playerRepo;
         this.userRepo = userRepo;
@@ -99,19 +97,20 @@ public class RoomService {
         this.boardService = boardService;
         this.vprops = vprops;
         this.vipService = vipService;
-        this.duoRepo = duoRepo;
+        this.gameService = gameService;
     }
 
     /* ---------- DTO ---------- */
 
     public record PlayerView(int seat, long userId, String nickname, int avatarId, int level,
                              boolean ready, boolean online, boolean host, boolean ai,
-                             String avatarUrl, String nickColor, String frameColor, String title, int vip) {}
+                             String avatarUrl, String nickColor, String frameColor, String title, int vip,
+                             String skin3d) {}
 
     public record RoomView(String roomNo, String status, long hostUserId, int maxSeats,
                            Map<String, Integer> board, String boardName, List<PlayerView> players,
                            boolean voiceMode, boolean anonymous, boolean itemMatch, boolean huntCity,
-                           boolean duoMode, List<int[]> duos, DuoInvite duoInvite) {}
+                           boolean aiOnly) {}
 
     public record ActionResult(RoomView view, String error) {}
 
@@ -125,6 +124,18 @@ public class RoomService {
         return roomRepo.findByRoomNo(roomNo);
     }
 
+    /**
+     * 反查某用户正在「观战」的房间（观战者没有 RoomPlayer 座位记录，只能靠房间成员索引）。
+     * 用于观战者拉取对局状态 / 恢复观战界面 / 主动退出观战。
+     */
+    public Optional<Room> findWatchedRoom(long userId) {
+        for (Long rid : membership.roomsOf(userId)) {
+            Optional<Room> r = roomRepo.findById(rid);
+            if (r.isPresent()) return r;
+        }
+        return Optional.empty();
+    }
+
     /* ---------- 视图 ---------- */
 
     public RoomView view(Room room) {
@@ -133,7 +144,7 @@ public class RoomService {
                 .map(p -> {
                     if (p.isAi()) {
                         return new PlayerView(p.getSeatNo(), p.getUserId(), p.getAiName(), 2, 1,
-                                true, true, false, true, null, null, null, null, 0);
+                                true, true, false, true, null, null, null, null, 0, null);
                     }
                     User u = userRepo.findById(p.getUserId()).orElse(null);
                     if (u == null) return null;
@@ -141,127 +152,15 @@ public class RoomService {
                     return new PlayerView(p.getSeatNo(), u.getId(), u.getNickname(), u.getAvatarId(),
                             u.getLevel(), p.isReady(), presence.isOnline(u.getId()), u.getId().equals(room.getHostUserId()),
                             false, (String) dec.get("avatarUrl"), (String) dec.get("nickColor"),
-                            (String) dec.get("frameColor"), (String) dec.get("title"), vipService.effectiveLevel(u));
+                            (String) dec.get("frameColor"), (String) dec.get("title"), vipService.effectiveLevel(u),
+                            (String) dec.get("skin3d"));
                 })
                 .filter(v -> v != null)
                 .toList();
         return new RoomView(room.getRoomNo(), room.getStatus(), room.getHostUserId(), room.getMaxSeats(),
                 boardService.parse(room.getBoardConfig()), room.getBoardName(), views,
                 room.isVoiceMode(), room.isAnonymous(), room.isItemMatch(), room.isHuntCity(),
-                room.isDuoMode(), duoSeatPairs(room.getId(), players), null);
-    }
-
-    /** 组队对 → 座位号对（映射不上的丢弃）。 */
-    private List<int[]> duoSeatPairs(long roomId, List<RoomPlayer> players) {
-        Map<Long, Integer> seatByUser = new java.util.HashMap<>();
-        players.forEach(p -> seatByUser.put(p.getUserId(), p.getSeatNo()));
-        return duosOf(roomId).stream()
-                .map(pair -> new int[]{
-                        seatByUser.getOrDefault(pair[0], -1),
-                        seatByUser.getOrDefault(pair[1], -1)})
-                .filter(pair -> pair[0] > 0 && pair[1] > 0)
-                .toList();
-    }
-
-    /* ================= 双人组队 ================= */
-
-    public record DuoInvite(long fromUserId, String fromName) {}
-
-    /** 向同房间玩家发起组队邀请（内存态，等对方接受）。 */
-    public ActionResult inviteDuo(User from, long targetUserId) {
-        Optional<Room> found = findRoomOfUser(from.getId());
-        if (found.isEmpty()) return new ActionResult(null, "你不在任何房间");
-        Room room = found.get();
-        if (!"WAITING".equals(room.getStatus())) return new ActionResult(null, "游戏已开始，无法组队");
-        if (!room.isDuoMode()) return new ActionResult(null, "本房间未开启双人组队模式");
-        if (from.getId().equals(targetUserId)) return new ActionResult(null, "不能和自己组队");
-        List<RoomDuo> duos = duoRepo.findByRoomId(room.getId());
-        boolean mePaired = duos.stream().anyMatch(d -> d.getUserA().equals(from.getId()) || d.getUserB().equals(from.getId()));
-        if (mePaired) return new ActionResult(null, "你已组队，先解除当前队伍");
-        boolean targetPaired = duos.stream().anyMatch(d -> d.getUserA().equals(targetUserId) || d.getUserB().equals(targetUserId));
-        if (targetPaired) return new ActionResult(null, "对方已有队伍");
-        RoomPlayer target = playerRepo.findByRoomIdAndUserId(room.getId(), targetUserId).orElse(null);
-        if (target == null) return new ActionResult(null, "对方不在本房间");
-        if (target.isAi()) return new ActionResult(null, "AI 无法与你组队");
-        java.util.List<long[]> invites = duoInvites.computeIfAbsent(room.getId(), k -> new java.util.ArrayList<>());
-        boolean dup = invites.stream().anyMatch(i -> i[0] == from.getId() && i[1] == targetUserId);
-        if (dup) return new ActionResult(null, "邀请已发送，等待对方接受");
-        invites.add(new long[]{from.getId(), targetUserId});
-        return new ActionResult(view(room), null);
-    }
-
-    /** 接受组队邀请。 */
-    @Transactional
-    public ActionResult acceptDuo(User me, long fromUserId) {
-        Optional<Room> found = findRoomOfUser(me.getId());
-        if (found.isEmpty()) return new ActionResult(null, "你不在任何房间");
-        Room room = found.get();
-        if (!"WAITING".equals(room.getStatus())) return new ActionResult(null, "游戏已开始，无法组队");
-        java.util.List<long[]> invites = duoInvites.getOrDefault(room.getId(), new java.util.ArrayList<>());
-        long[] mine = invites.stream().filter(i -> i[0] == fromUserId && i[1] == me.getId()).findFirst().orElse(null);
-        if (mine == null) return new ActionResult(null, "没有来自该玩家的组队邀请");
-        List<RoomDuo> duos = duoRepo.findByRoomId(room.getId());
-        boolean mePaired = duos.stream().anyMatch(d -> d.getUserA().equals(me.getId()) || d.getUserB().equals(me.getId()));
-        boolean fromPaired = duos.stream().anyMatch(d -> d.getUserA().equals(fromUserId) || d.getUserB().equals(fromUserId));
-        if (mePaired || fromPaired) {
-            invites.removeIf(i -> i[0] == fromUserId && i[1] == me.getId());
-            return new ActionResult(null, "邀请已失效（有人已组队）");
-        }
-        RoomDuo duo = new RoomDuo();
-        duo.setRoomId(room.getId());
-        duo.setUserA(fromUserId);
-        duo.setUserB(me.getId());
-        duoRepo.save(duo);
-        invites.removeIf(i -> i[0] == fromUserId && i[1] == me.getId());
-        return new ActionResult(view(room), null);
-    }
-
-    /** 取消：撤回我发出的邀请，或解除我所在的队伍。 */
-    @Transactional
-    public ActionResult cancelDuo(User me) {
-        Optional<Room> found = findRoomOfUser(me.getId());
-        if (found.isEmpty()) return new ActionResult(null, "你不在任何房间");
-        Room room = found.get();
-        duoInvites.getOrDefault(room.getId(), new java.util.ArrayList<>())
-                .removeIf(i -> i[0] == me.getId() || i[1] == me.getId());
-        duoRepo.findByRoomId(room.getId()).stream()
-                .filter(d -> d.getUserA().equals(me.getId()) || d.getUserB().equals(me.getId()))
-                .forEach(duoRepo::delete);
-        return new ActionResult(view(room), null);
-    }
-
-    /** 房间内全部组队对（userId 对）。 */
-    public List<long[]> duosOf(long roomId) {
-        return duoRepo.findByRoomId(roomId).stream()
-                .map(d -> new long[]{d.getUserA(), d.getUserB()}).toList();
-    }
-
-    /** 发给我的、尚未处理的组队邀请。 */
-    public Optional<DuoInvite> pendingInviteFor(long roomId, long userId) {
-        java.util.List<long[]> invites = duoInvites.getOrDefault(roomId, new java.util.ArrayList<>());
-        return invites.stream()
-                .filter(i -> i[1] == userId)
-                .findFirst()
-                .flatMap(i -> {
-                    Optional<User> u = userRepo.findById(i[0]);
-                    // 邀请人已被删除 → 顺手清掉这条悬空邀请
-                    if (u.isEmpty()) {
-                        invites.remove(i);
-                        return Optional.empty();
-                    }
-                    String name = u.get().getNickname() != null ? u.get().getNickname() : u.get().getUsername();
-                    return Optional.of(new DuoInvite(u.get().getId(), name));
-                });
-    }
-
-    /** 玩家离开房间时清理其组队与邀请。 */
-    @Transactional
-    public void cleanupDuosOnLeave(long roomId, long userId) {
-        duoRepo.findByRoomId(roomId).stream()
-                .filter(d -> d.getUserA().equals(userId) || d.getUserB().equals(userId))
-                .forEach(duoRepo::delete);
-        duoInvites.getOrDefault(roomId, new java.util.ArrayList<>())
-                .removeIf(i -> i[0] == userId || i[1] == userId);
+                room.isAiOnly());
     }
 
     /* ---------- 创建 ---------- */
@@ -295,6 +194,98 @@ public class RoomService {
         throw new IllegalStateException("无法生成唯一房间号");
     }
 
+    /* ================= 全 AI 队局（观战房） ================= */
+
+    /** 观战房可选的板子（预设 id），覆盖 6~16 人的常见配置。 */
+    private static final List<String> AI_SHOW_BOARD_IDS = List.of(
+            "beginner6", "standard9", "guard10", "classic12", "gods12", "whiteking14", "wolfking15", "sixteen16");
+    private static final String AI_SHOW_DEFAULT_BOARD_ID = "classic12";
+
+    /** 观战房可选板子列表（供前端下拉）。 */
+    public List<Map<String, Object>> aiShowBoards() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (BoardService.Preset p : boardService.presets()) {
+            if (!AI_SHOW_BOARD_IDS.contains(p.id())) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", p.id());
+            m.put("name", p.name());
+            m.put("desc", p.desc());
+            m.put("counts", p.counts());
+            m.put("total", boardService.total(p.counts()));
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 把观战房板子 id 解析为 counts；未知/为空时回退到默认板子。 */
+    public Map<String, Integer> resolveAiShowBoard(String boardId) {
+        String id = boardId == null || boardId.isBlank() ? AI_SHOW_DEFAULT_BOARD_ID : boardId;
+        for (BoardService.Preset p : boardService.presets()) {
+            if (p.id().equals(id)) return p.counts();
+        }
+        for (BoardService.Preset p : boardService.presets()) {
+            if (p.id().equals(AI_SHOW_DEFAULT_BOARD_ID)) return p.counts();
+        }
+        return Map.of("WEREWOLF", 4, "VILLAGER", 4, "SEER", 1, "WITCH", 1, "HUNTER", 1, "IDIOT", 1);
+    }
+
+    /**
+     * 创建一间「全 AI 观战房」：房主不入座（作为观战者），整局全部由 AI 出战。
+     * 创建后由调用方立即开局（见 AiShowController）。
+     */
+    @Transactional
+    public ActionResult createAiShow(User host, String boardId) {
+        if (findRoomOfUser(host.getId()).isPresent()) {
+            return new ActionResult(null, "你已在其他房间中，请先离开");
+        }
+        Map<String, Integer> counts = resolveAiShowBoard(boardId);
+        Room room = new Room();
+        room.setRoomNo(generateRoomNo());
+        room.setHostUserId(host.getId());
+        room.setMaxSeats(MAX_SEATS);
+        room.setAiOnly(true);
+        room.setItemMatch(false);   // 观战房不涉及道具赛
+        room.setBoardConfig(boardService.serialize(counts));
+        room.setBoardName(boardId == null || boardId.isBlank() ? AI_SHOW_DEFAULT_BOARD_ID : boardId);
+        room = roomRepo.save(room);
+
+        // 房主作为“观战席”登记：保留一条座位记录以便 /api/room/my 能定位房间、断线可恢复，
+        // 但开局走 allBots 分支，房主不会进入对局座位（即天然观战）。
+        RoomPlayer p = new RoomPlayer();
+        p.setRoomId(room.getId());
+        p.setUserId(host.getId());
+        p.setSeatNo(1);
+        p.setReady(true);
+        playerRepo.save(p);
+        membership.add(room.getId(), host.getId());
+        return new ActionResult(view(room), null);
+    }
+
+    /** 正在进行的全 AI 观战房列表（供大厅展示、一键进入观战）。 */
+    public List<Map<String, Object>> listAiShows() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Room r : roomRepo.findAll()) {
+            if (!r.isAiOnly()) continue;
+            com.werewolf.game.LiveGame lg = gameService.get(r.getId());
+            // 只展示「有活跃对局」或「仍有人在看」的观战房，避免把服务重启后残留的僵尸房挂在大厅上
+            if (lg == null && membership.membersOf(r.getId()).isEmpty()) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("roomNo", r.getRoomNo());
+            m.put("status", r.getStatus());
+            m.put("boardName", r.getBoardName());
+            m.put("hostUserId", r.getHostUserId());
+            m.put("hostName", userRepo.findById(r.getHostUserId()).map(User::getNickname).orElse("系统"));
+            m.put("watchers", membership.membersOf(r.getId()).size());
+            m.put("day", lg != null ? lg.engine.day() : 0);
+            m.put("phase", lg != null ? lg.engine.phase().name() : "");
+            m.put("total", lg != null ? lg.engine.players().size() : 0);
+            m.put("alive", lg != null ? (int) lg.engine.players().stream().filter(x -> x.alive).count() : 0);
+            m.put("playing", lg != null && !lg.finished);
+            out.add(m);
+        }
+        return out;
+    }
+
     /* ---------- 加入 ---------- */
 
     @Transactional
@@ -308,6 +299,11 @@ public class RoomService {
         Optional<Room> found = roomRepo.findByRoomNo(roomNo);
         if (found.isEmpty()) return new ActionResult(null, "房间不存在");
         Room room = found.get();
+        // 全 AI 观战房不开放入座：用房间号/邀请链接进来时自动转为观战，避免“加入被拒”的割裂体验
+        if (room.isAiOnly()) {
+            membership.add(room.getId(), user.getId());
+            return new ActionResult(view(room), null);
+        }
         // 房间级互斥：把「状态校验 → 人数上限 → 计算空位 → 保存座位」整段放进临界区，
         // 锁延迟到本事务提交后才释放，避免并发加入时两人拿到同一空位或突破 maxSeats。
         return withRoomLock(room.getId(), () -> {
@@ -341,9 +337,14 @@ public class RoomService {
     @Transactional
     public ActionResult leave(User user) {
         Optional<Room> found = findRoomOfUser(user.getId());
-        if (found.isEmpty()) return new ActionResult(null, "你不在任何房间");
-        Room room = found.get();
-        return doLeave(room, user.getId());
+        if (found.isPresent()) return doLeave(found.get(), user.getId());
+        // 观战者没有座位记录：只需移出房间成员集合即可（view 返回 null 表示"已无房间"）
+        Optional<Room> watched = findWatchedRoom(user.getId());
+        if (watched.isPresent()) {
+            membership.remove(watched.get().getId(), user.getId());
+            return new ActionResult(null, null);
+        }
+        return new ActionResult(null, "你不在任何房间");
     }
 
     /** 断线超时或主动离开共用 */
@@ -355,10 +356,10 @@ public class RoomService {
         playerRepo.flush();
         // 关键：把离开者从房间广播成员集合移除，否则随后的 room.state 会把 TA 又拉回房间页（表现为“无法退出房间”）
         membership.remove(room.getId(), userId);
-        // 清理离开者的组队与邀请
-        cleanupDuosOnLeave(room.getId(), userId);
         List<RoomPlayer> remaining = playerRepo.findByRoomIdOrderBySeatNoAsc(room.getId());
         if (remaining.isEmpty()) {
+            // 房间被清空：若还有进行中的对局（如全 AI 观战房）必须先终止，否则会留下无人看管的空转对局
+            try { gameService.forceEndByAdmin(room.getId()); } catch (Exception ignored) {}
             membership.clearRoom(room.getId());
             roomRepo.delete(room);
             return new ActionResult(null, null); // 房间已解散，view 为 null 表示无房间
@@ -492,7 +493,7 @@ public class RoomService {
 
     /** 房主设置语音/匿名模式（开局前）。语音模式需服务端已启用语音。 */
     @Transactional
-    public ActionResult setMode(User host, boolean voiceMode, boolean anonymous, boolean huntCity, boolean duoMode) {
+    public ActionResult setMode(User host, boolean voiceMode, boolean anonymous, boolean huntCity) {
         Optional<Room> found = findRoomOfUser(host.getId());
         if (found.isEmpty()) return new ActionResult(null, "你不在任何房间");
         Room room = found.get();
@@ -504,12 +505,6 @@ public class RoomService {
         room.setVoiceMode(voiceMode);
         room.setAnonymous(anonymous || voiceMode); // 语音模式默认强制匿名伪装以藏 AI（真人语音也被声纹中继统一）
         room.setHuntCity(huntCity);
-        room.setDuoMode(duoMode);
-        if (!duoMode) {
-            // 关闭组队模式：清空本房间全部组队与邀请
-            duoRepo.findByRoomId(room.getId()).forEach(duoRepo::delete);
-            duoInvites.remove(room.getId());
-        }
         room.setUpdatedAt(LocalDateTime.now());
         roomRepo.save(room);
         return new ActionResult(view(room), null);
@@ -546,6 +541,7 @@ public class RoomService {
                     .filter(p -> !p.isAi() && presence.isOnline(p.getUserId())).count();
             m.put("onlineCount", onlineCount);
             m.put("voiceMode", r.isVoiceMode()); m.put("anonymous", r.isAnonymous()); m.put("itemMatch", r.isItemMatch());
+            m.put("aiOnly", r.isAiOnly());
             m.put("boardName", r.getBoardName());
             m.put("createdAt", r.getCreatedAt() == null ? null : r.getCreatedAt().toString());
             out.add(m);
@@ -558,6 +554,8 @@ public class RoomService {
     public String adminDissolve(long roomId) {
         Optional<Room> found = roomRepo.findById(roomId);
         if (found.isEmpty()) return "房间不存在";
+        // 先终止进行中的对局，避免房间删除后留下空转的对局线程
+        try { gameService.forceEndByAdmin(roomId); } catch (Exception ignored) {}
         for (RoomPlayer p : playerRepo.findByRoomIdOrderBySeatNoAsc(roomId)) membership.remove(roomId, p.getUserId());
         playerRepo.deleteByRoomId(roomId);
         roomRepo.delete(found.get());
@@ -571,9 +569,30 @@ public class RoomService {
     /* ---------- 补位 AI ---------- */
 
     private static final java.util.concurrent.atomic.AtomicLong aiIdSeq = new java.util.concurrent.atomic.AtomicLong(-1_000_000_000L);
+    /** 补位 AI 昵称池：数量须 ≥ MAX_SEATS(24)，否则满员时会因取模回绕出现重名。 */
     private static final String[] AI_NAMES = {
-            "月影", "银狼", "夜莺", "灰羽", "烛火", "雾隐", "孤星", "寒鸦", "暮色", "幽兰", "赤瞳", "青岚", "白泽", "墨麟"
+            "月影", "银狼", "夜莺", "灰羽", "烛火", "雾隐", "孤星", "寒鸦", "暮色", "幽兰", "赤瞳", "青岚",
+            "白露", "疏影", "长风", "惊蛰", "子规", "望舒", "南栀", "北辰", "半夏", "流萤", "拾光", "山鬼"
     };
+
+    /**
+     * 为补位 AI 挑一个「本房间尚未被其它 AI 占用」的昵称，保证同房不重名。
+     * 起始下标由座位号 + 房间号决定（保留原有随机感），随后顺序向后找一个未使用的名字。
+     */
+    private String pickAiName(long roomId, int seat) {
+        Set<String> used = new HashSet<>();
+        for (RoomPlayer p : playerRepo.findByRoomIdOrderBySeatNoAsc(roomId)) {
+            if (p.isAi() && p.getAiName() != null) used.add(p.getAiName());
+        }
+        int n = AI_NAMES.length;
+        int start = (int) Math.floorMod((long) seat - 1 + roomId, n);
+        for (int i = 0; i < n; i++) {
+            String cand = AI_NAMES[(start + i) % n];
+            if (!used.contains(cand)) return cand;
+        }
+        // 池已用尽（池大小 == MAX_SEATS，正常不会发生），退回起始名避免 NPE。
+        return AI_NAMES[start % n];
+    }
 
     @Transactional
     public ActionResult addAi(User host) {
@@ -592,7 +611,7 @@ public class RoomService {
             p.setUserId(aiIdSeq.decrementAndGet());
             p.setSeatNo(seat);
             p.setAi(true);
-            p.setAiName(AI_NAMES[(int) (Math.abs(seat + room.getId()) % AI_NAMES.length)]);
+            p.setAiName(pickAiName(room.getId(), seat));
             p.setReady(true);
             playerRepo.save(p);
             playerRepo.flush();

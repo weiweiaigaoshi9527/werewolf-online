@@ -172,7 +172,15 @@ public class HallWebSocketHandler extends TextWebSocketHandler {
                     }
                 }
             });
+            return;
         }
+        // 观战者没有座位记录：断线宽限期后移出房间成员集合，避免"幽灵观战者"让房间（尤其是全 AI 观战房）一直空转
+        roomService.findWatchedRoom(uid).ifPresent(room -> {
+            broadcaster.broadcastState(room.getId(), roomService.view(room));
+            disconnectTracker.schedule(uid, DISCONNECT_GRACE_SECONDS, () -> {
+                if (!presence.isOnline(uid)) roomService.removeSpectator(room.getId(), uid);
+            });
+        });
     }
 
     private void send(WebSocketSession session, String type, Map<String, ?> payload) throws IOException {

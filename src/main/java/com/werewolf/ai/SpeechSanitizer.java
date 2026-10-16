@@ -62,6 +62,23 @@ public final class SpeechSanitizer {
     /** 句首推理脚手架：以这些词开头（后跟标点）的句子是典型的分条分析，不是口语发言。 */
     private static final Pattern REASON_START = Pattern.compile(
             "^\\s*(首先|其次|再者|再次|接着|最后一点?|其一|其二|其三|第[一二三四五12345](步|点|条|，|,|、|：|:))");
+    /** 拉丁字母串（含单个字母）：公开发言必须为简体中文，出现即视为夹带英文或思考残片。 */
+    private static final Pattern LATIN_RUN = Pattern.compile("[A-Za-z]+");
+    /** 允许保留的少量约定俗成写法（游戏内常见，不算"说英文"）。 */
+    private static final java.util.Set<String> LATIN_ALLOW =
+            java.util.Set.of("pk", "mvp", "qq", "id", "ok", "emmm", "vip");
+    /**
+     * 「思考过程 / 分析批注」残留特征：正常中文口语不会这么写，命中即【整句丢弃】而不是抢救。
+     * 否则会把模型内部批注的碎片拼成乱码播报出去（例如
+     * “11号's "…" , 警徽流 = 预言家死后警徽移交顺序, 预言家.查杀 3号 .a : …”）。
+     * 覆盖：等号/单引号/波浪线/竖线/反引号；孤立的单个拉丁字母；不夹在数字之间的英文句点。
+     */
+    private static final Pattern TRACE_JUNK = Pattern.compile(
+            "[='~|`]|(?<![A-Za-z])[A-Za-z](?![A-Za-z])|(?<!\\d)\\.(?!\\d)");
+    /** 高置信度的「思考过程」用语（提示词回显 / 自我分析口吻），真人发言不会这么写。 */
+    private static final Pattern TRACE_MARKER = Pattern.compile(
+            "我们身份|需要回答|需要以|不英文|不复读|验人顺序|警徽移交顺序|预言家死后|"
+                    + "那是发言方式|明确表态站边|TASK:|LEGAL_TARGETS|ACTION_NAME|可能记录|规则是");
     /** 句子切分：中文句末标点 / 英文句末标点+空白 / 换行 */
     private static final Pattern SENT_SPLIT = Pattern.compile("(?<=[。！？!?…；;])|(?<=[.!?])(?=\\s)|[\\n\\r]+");
     /** 句末标点 */
@@ -100,6 +117,10 @@ public final class SpeechSanitizer {
         s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replaceAll("\\s{2,}", " ").trim();
         if (s.isEmpty()) return "";
 
+        // 整段判别：模型的思考过程（CoT）通篇都是"引用+批注"，等号/单引号/孤立字母/英文句点会密集出现；
+        // 真人发言几乎不会有。命中即整条作废（交给上层重试或走中文兜底），绝不把内部批注播报出去。
+        if (countMatches(TRACE_JUNK, s) >= 2 || TRACE_MARKER.matcher(s).find()) return "";
+
         // 逐句过滤：只保留中文为主且不含元信息/内心策略泄漏的句子
         List<String> kept = new ArrayList<>();
         for (String sent : SENT_SPLIT.split(s)) {
@@ -109,11 +130,20 @@ public final class SpeechSanitizer {
             if (META_CN.matcher(t).find()) continue;
             if (REASON_START.matcher(t).find()) continue;
             if (STRATEGY_LEAK.matcher(t).find()) continue;
-            if (!looksChinese(t)) continue;
-            kept.add(t);
+            // 思考过程/分析批注残留（等号、单引号、孤立字母、英文句点、CoT 用语）→ 整句丢弃，不抢救
+            if (TRACE_JUNK.matcher(t).find()) continue;
+            if (TRACE_MARKER.matcher(t).find()) continue;
+            // 中英混说（如"我觉得3号是狼，because 他带节奏"）：剔除夹带的英文，保留中文部分；
+            // 这对局后期上下文变长时尤其常见，是"AI 说英文"的主要来源。
+            String stripped = stripLatin(t);
+            if (stripped.isEmpty()) continue;
+            if (!looksChinese(stripped)) continue;
+            kept.add(stripped);
         }
         String out = String.join("", kept).trim();
         if (out.isEmpty()) return "";
+        // 兜底：拼装后若仍带思考批注特征，整条作废（宁可让上层重试/走中文兜底，也绝不播乱码）
+        if (TRACE_JUNK.matcher(out).find() || TRACE_MARKER.matcher(out).find()) return "";
         // 被模型截断（结尾停在连接词）时补省略号，避免播报出半句话
         if (DANGLING_TAIL.matcher(out).find()) out = out + "…";
 
@@ -133,13 +163,59 @@ public final class SpeechSanitizer {
         return out.trim();
     }
 
-    /** 是否仍带明显“分析腔/推理过程”痕迹（供上层判断是否需要加重试）。 */
-    public static boolean hasReasoningMarkers(String text) {
-        if (text == null || text.isBlank()) return false;
-        return META.matcher(text).find() || META_CN.matcher(text).find() || REASON_START.matcher(text).find();
+    /** 统计某个模式在文本中出现的次数（用于"整段是否像思考过程"的密度判别）。 */
+    private static int countMatches(Pattern p, String s) {
+        Matcher m = p.matcher(s);
+        int n = 0;
+        while (m.find()) n++;
+        return n;
     }
 
-    /** 是否“以中文为主”：中文字符占比 ≥ 0.28（排除纯英文/英中混杂的思考片段）。 */
+    /** 是否仍带明显“分析腔/推理过程/思考批注”痕迹（供上层判断是否需要加重试）。 */
+    public static boolean hasReasoningMarkers(String text) {
+        if (text == null || text.isBlank()) return false;
+        return META.matcher(text).find() || META_CN.matcher(text).find() || REASON_START.matcher(text).find()
+                || TRACE_JUNK.matcher(text).find() || TRACE_MARKER.matcher(text).find();
+    }
+
+    /** 文本中是否仍夹带英文单词（白名单外）。供上层判断是否需要「改为纯中文重说」。 */
+    public static boolean containsLatin(String text) {
+        if (text == null || text.isBlank()) return false;
+        Matcher m = LATIN_RUN.matcher(text);
+        while (m.find()) {
+            if (!LATIN_ALLOW.contains(m.group().toLowerCase(java.util.Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 剔除句中夹带的英文单词（白名单除外），并清理由此产生的多余空格与孤立标点。
+     * 返回 null 表示该句去掉英文后已无有效内容。
+     */
+    private static String stripLatin(String t) {
+        Matcher m = LATIN_RUN.matcher(t);
+        StringBuilder sb = new StringBuilder();
+        int last = 0;
+        boolean removed = false;
+        while (m.find()) {
+            if (LATIN_ALLOW.contains(m.group().toLowerCase(java.util.Locale.ROOT))) continue;  // 保留，不动 last
+            sb.append(t, last, m.start());
+            last = m.end();
+            removed = true;
+        }
+        if (!removed) return t;
+        sb.append(t, last, t.length());
+        String out = sb.toString()
+                .replaceAll("\\s{2,}", " ")
+                .replaceAll("\\s+([，。、！？；：）)])", "$1")
+                .replaceAll("([（(])\\s+", "$1")
+                .replaceAll("^[\\s，。、；：！？…]+", "")
+                .replaceAll("[\\s，、；：]+$", "")
+                .trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    /** 是否“以中文为主”：中文字符占比 ≥ 0.5（剔除英文后仍要求过半为中文，杜绝中英混说）。 */
     private static boolean looksChinese(String t) {
         int total = 0, cjk = 0;
         for (int i = 0; i < t.length(); i++) {
@@ -149,7 +225,7 @@ public final class SpeechSanitizer {
             if (isCjk(c)) cjk++;
         }
         if (total == 0 || cjk == 0) return false;
-        return (double) cjk / total >= 0.28;
+        return (double) cjk / total >= 0.5;
     }
 
     private static boolean isCjk(char c) {

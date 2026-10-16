@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'store.dart';
 import 'theme.dart';
+import 'i18n.dart';
 
 /// 全局通知浮层：挂在 MaterialApp.builder 的 Stack 上，因此在任何页面（含 push 出去的
 /// 二级页）都能收到 WS 提示，不必每页自己接 ScaffoldMessenger。
@@ -97,7 +98,7 @@ class _WwNoticeLayerState extends State<WwNoticeLayer> {
                     size: 17, color: const Color(0xFF1A1206)),
                 const SizedBox(width: 9),
                 Expanded(
-                  child: Text(n.text,
+                  child: Tx(n.text,
                       style: const TextStyle(color: Color(0xFF1A1206), fontSize: 13.5, height: 1.35)),
                 ),
                 if (invite && n.roomNo != null)
@@ -106,7 +107,7 @@ class _WwNoticeLayerState extends State<WwNoticeLayer> {
                       widget.store.dismissNotice(n.id);
                       widget.store.joinRoom(n.roomNo!);
                     },
-                    child: const Text('加入', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Tx('加入', style: TextStyle(fontWeight: FontWeight.bold)),
                   )
                 else
                   const Icon(Icons.close, size: 15, color: Color(0x991A1206)),

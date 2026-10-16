@@ -28,6 +28,7 @@ public class DecorationService {
         m.put("avatarId", u.getAvatarId());
         m.put("avatarUrl", u.getAvatarUrl());
         m.put("nickColor", u.getNickColor());
+        m.put("skin3d", u.getSkin3d());
         m.put("frameId", u.getFrameId());
         m.put("titleId", u.getTitleId());
         ItemDefinition frame = u.getFrameId() > 0 ? itemRepo.findById((long) u.getFrameId()).orElse(null) : null;
@@ -67,6 +68,7 @@ public class DecorationService {
             m.put("avatarId", u.getAvatarId());
             m.put("avatarUrl", u.getAvatarUrl());
             m.put("nickColor", u.getNickColor());
+            m.put("skin3d", u.getSkin3d());
             m.put("frameId", u.getFrameId());
             m.put("titleId", u.getTitleId());
             ItemDefinition frame = u.getFrameId() > 0 ? items.get((long) u.getFrameId()) : null;

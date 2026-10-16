@@ -94,7 +94,10 @@ public class AiPolicy {
                 ? "发表遗言（你已出局，身份已不重要、无需再保密）：请结合你自己的真实身份来交代——"
                   + "如预言家可报昨晚验人结果、女巫可说用药情况、猎人可留开枪指示、狼人可坦白或继续甩锅带节奏；"
                   + "总之按对你阵营最有利的方式，用真实身份说清楚你想留下的信息"
-                : (kind.equals("PK_SPEECH") ? "在平票 PK 中拉票发言" : "白天发言");
+                : (kind.equals("PK_SPEECH") ? "在平票 PK 中拉票发言"
+                : (g.phase() == com.werewolf.rules.GamePhase.SHERIFF_ELECTION
+                        ? "发表警长竞选发言（你是上警的候选人：说清你凭什么当警长、当选后会怎么带队，并回应或质疑其他候选人的发言）"
+                        : "白天发言"));
         int cap = voice ? 220 : 200;
         String baseUser = PromptLibrary.speechUser(g, seat, tag, style, extra, voice, showOf)
                 + PhraseDedup.promptBlock(g, seat, showOf);
@@ -116,6 +119,24 @@ public class AiPolicy {
                         new AiProvider.Message("user", harden))), cap);
             }
             if (text.isEmpty() || text.matches("^(过|过麦|跳过|（过）|无|没有|没信息.*?)$")) return "过";
+
+            // 语言兜底：清洗后若仍夹带英文（对局后期上下文变长时模型易中英混说），
+            // 要求它把同样的意思用纯中文重说一次；再失败就退回中文兜底台词，绝不让英文上台。
+            if (SpeechSanitizer.containsLatin(text)) {
+                log.warn("AI 座位{} 发言夹带英文(残留={})，要求改为纯中文重说", seat, brief(text));
+                String zh = baseUser + "\n【重要】你上一次的输出里夹带了英文单词（已作废）。"
+                        + "现在用【纯简体中文】把同样的意思重新说一遍：一个英文单词都不许出现，"
+                        + "专有名词/术语也一律写成中文（如 3号、预言家、女巫、狼人）。\n";
+                String retry = SpeechSanitizer.clean(ai.chat(List.of(
+                        new AiProvider.Message("system", PromptLibrary.systemPrompt(me.role)),
+                        new AiProvider.Message("user", zh))), cap);
+                if (!retry.isEmpty() && !SpeechSanitizer.containsLatin(retry)) {
+                    text = retry;
+                } else {
+                    log.warn("AI 座位{} 二次仍夹带英文，改用中文兜底台词", seat);
+                    return fallbackSpeech(g, seat, kind);
+                }
+            }
 
             // 反雷同：与本人最近发言或全场发言过于像 → 带上“已被说过的原句”作为负例，要求换新角度重说一次。
             if (PhraseDedup.tooSimilar(g, seat, text)) {
@@ -145,7 +166,25 @@ public class AiPolicy {
         } catch (Exception e) {
             // 上游不可用（限流/超时/网络）时不能让全员复读同一句：走多样化兜底台词，并把原因记进日志。
             recordUpstreamFailure(e);
-            log.warn("AI 座位{} 发言生成失败（{}），改用多样化兜底台词：{}", seat, kind, e.toString());
+            log.warn("AI 座位{} 发言生成失败（{}）", seat, e.toString());
+            // 最常见的一类失败：模型把 token 预算全花在思考上导致 content 为空。
+            // 这种情况值得再给一次机会，并明确要求「不要分析、直接说一句话」，成功率很高。
+            if (e.getMessage() != null && e.getMessage().contains("响应无内容")) {
+                try {
+                    String retry = SpeechSanitizer.clean(ai.chat(List.of(
+                            new AiProvider.Message("system", PromptLibrary.systemPrompt(me.role)),
+                            new AiProvider.Message("user", baseUser
+                                    + "\n【重要】你上一次没有产出任何有效发言（思考占满了额度，已作废）。"
+                                    + "这次不要做任何分析或推理，直接给出 15-40 字的简体中文口语发言，一句话说完。\n"))), cap);
+                    if (!retry.isEmpty() && !SpeechSanitizer.containsLatin(retry)) {
+                        log.info("AI 座位{} 精简重试成功", seat);
+                        return retry;
+                    }
+                } catch (Exception e2) {
+                    log.warn("AI 座位{} 精简重试仍失败：{}", seat, e2.toString());
+                }
+            }
+            log.warn("AI 座位{} 改用多样化兜底台词", seat);
             return fallbackSpeech(g, seat, kind);
         }
     }
@@ -267,6 +306,7 @@ public class AiPolicy {
     private GameAction toAction(String kind, int target) {
         GameAction a = new GameAction();
         if (kind.equals("SHERIFF_SIGNUP")) { a.signup = target == 1; return a; }
+        if (kind.equals("SHERIFF_WITHDRAW")) { a.withdraw = target == 1; return a; }
         a.target = target;
         return a;
     }
@@ -284,18 +324,41 @@ public class AiPolicy {
             case "CROW" -> a.target = fallback.crowTarget(g, me, rnd);
             case "SILENCER" -> a.target = fallback.silencerTarget(g, me, rnd);
             case "SHOOT" -> a.target = fallback.shootTarget(g, me, rnd);
+            case "SHERIFF_TRANSFER" -> {
+                // 降级：随机把警徽交给一名存活玩家；无人可交则撕毁
+                List<Integer> cand = new ArrayList<>();
+                for (Player p : g.alive()) if (p.seat != seat) cand.add(p.seat);
+                a.target = cand.isEmpty() ? 0 : cand.get(rnd.nextInt(cand.size()));
+            }
+            case "SHERIFF_ORDER" -> {
+                // 降级：默认从警右（座位号更大的下一位）开始发言
+                List<Integer> seats = g.alive().stream().map(p -> p.seat).sorted().toList();
+                int idx = seats.indexOf(seat);
+                a.target = seats.isEmpty() ? 0 : seats.get(idx < 0 ? 0 : (idx + 1) % seats.size());
+            }
             case "SHERIFF_SIGNUP" -> a.signup = fallback.sheriffSignup(g, me, rnd);
+            case "SHERIFF_WITHDRAW" -> a.withdraw = fallback.sheriffWithdraw(g, me, rnd);
             case "SHERIFF_VOTE" -> a.target = fallback.sheriffVote(g, me, new ArrayList<>(g.sheriffCandidates()), rnd);
             case "VOTE", "PK_VOTE" -> a.target = fallback.exileVote(g, me, rnd);
             case "SPEECH", "PK_SPEECH", "LAST_WORDS" -> {
-                // 白狼王 AI：白天有一定概率选择自爆（用与 LiveGameService 约定的文本标记触发）
-                if (g.canBlowUp(seat) && rnd.nextDouble() < 0.15) {
-                    List<Integer> goodTargets = g.alive().stream()
-                            .filter(p -> p.seat != seat && !p.isWolf()).map(p -> p.seat).toList();
-                    if (!goodTargets.isEmpty()) {
-                        a.text = com.werewolf.game.LiveGameService.BLOWUP_MARKER;
-                        a.target = goodTargets.get(rnd.nextInt(goodTargets.size()));
-                        break;
+                // 狼人 AI：白天有一定概率选择自爆（用与 LiveGameService 约定的文本标记触发）
+                // 白狼王自爆需带人；普通狼人自爆不带人（target=0）
+                if (g.canBlowUp(seat)) {
+                    boolean white = me.role == Role.WHITE_WOLF_KING;
+                    double chance = white ? 0.15 : 0.05;
+                    if (rnd.nextDouble() < chance) {
+                        if (!white) {
+                            a.text = com.werewolf.game.LiveGameService.BLOWUP_MARKER;
+                            a.target = 0;
+                            break;
+                        }
+                        List<Integer> goodTargets = g.alive().stream()
+                                .filter(p -> p.seat != seat && !p.isWolf()).map(p -> p.seat).toList();
+                        if (!goodTargets.isEmpty()) {
+                            a.text = com.werewolf.game.LiveGameService.BLOWUP_MARKER;
+                            a.target = goodTargets.get(rnd.nextInt(goodTargets.size()));
+                            break;
+                        }
                     }
                 }
                 a.text = "我先过，听后置位。";
@@ -315,7 +378,7 @@ public class AiPolicy {
 
     /** 合法目标列表 真实->显示（报名类 0/1 标志不映射）。 */
     private List<Integer> mapToShow(String kind, List<Integer> real, int[] showOf) {
-        if (showOf == null || kind.equals("SHERIFF_SIGNUP")) return real;
+        if (showOf == null || kind.equals("SHERIFF_SIGNUP") || kind.equals("SHERIFF_WITHDRAW")) return real;
         List<Integer> out = new ArrayList<>();
         for (int t : real) out.add(sh(showOf, t));
         return out;
@@ -338,7 +401,10 @@ public class AiPolicy {
             case "CROW" -> { out.addAll(alive); out.add(0); }
             case "SILENCER" -> { Player me = g.bySeat(seat); for (int s : alive) if (s != me.silencerLastTarget) out.add(s); out.add(0); }
             case "SHOOT" -> { for (int s : alive) if (s != seat) out.add(s); out.add(0); }
+            case "SHERIFF_TRANSFER" -> { for (int s : alive) if (s != seat) out.add(s); out.add(0); }
+            case "SHERIFF_ORDER" -> { out.addAll(alive); }
             case "SHERIFF_SIGNUP" -> { out.add(1); out.add(0); }
+            case "SHERIFF_WITHDRAW" -> { out.add(1); out.add(0); }
             case "SHERIFF_VOTE" -> { out.addAll(g.sheriffCandidates()); out.add(0); }
             case "VOTE" -> { Player me = g.bySeat(seat); for (Player p : g.alive()) { if (p.seat == seat || p.idiotRevealed) continue; if (me.isWolf() && p.isWolf()) continue; out.add(p.seat); } out.add(0); }
             case "PK_VOTE" -> { Player me = g.bySeat(seat); for (int c : g.tiebreakCandidates()) { Player cp = g.bySeat(c); if (me.isWolf() && cp != null && cp.isWolf()) continue; out.add(c); } out.add(0); }

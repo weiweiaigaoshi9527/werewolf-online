@@ -6,6 +6,8 @@ import com.werewolf.model.Room;
 import com.werewolf.model.User;
 import com.werewolf.repo.ForumPostRepository;
 import com.werewolf.repo.UserRepository;
+import com.werewolf.service.AdminCleanupService;
+import com.werewolf.service.AuthService;
 import com.werewolf.service.PresenceService;
 import com.werewolf.service.RoomService;
 import org.springframework.http.ResponseEntity;
@@ -23,14 +25,19 @@ public class AdminOpsController {
     private final LiveGameService gameService;
     private final ForumPostRepository forumPosts;
     private final RoomService roomService;
+    private final AdminCleanupService cleanup;
+    private final AuthService authService;
 
     public AdminOpsController(UserRepository users, PresenceService presence, LiveGameService gameService,
-                              ForumPostRepository forumPosts, RoomService roomService) {
+                              ForumPostRepository forumPosts, RoomService roomService,
+                              AdminCleanupService cleanup, AuthService authService) {
         this.users = users;
         this.presence = presence;
         this.gameService = gameService;
         this.forumPosts = forumPosts;
         this.roomService = roomService;
+        this.cleanup = cleanup;
+        this.authService = authService;
     }
 
     /** 论坛全部帖子（含已隐藏），供管理员审核。 */
@@ -69,6 +76,12 @@ public class AdminOpsController {
     /** 计算某在线用户当前所处：返回 [状态文案, 房号或空]。 */
     private String[] activityOf(long uid) {
         Optional<Room> roomOpt = roomService.findRoomOfUser(uid);
+        // 观战者没有座位记录：回退到正在观战的房间，避免把观战者误报成"大厅"
+        boolean spectating = false;
+        if (roomOpt.isEmpty()) {
+            roomOpt = roomService.findWatchedRoom(uid);
+            spectating = roomOpt.isPresent();
+        }
         if (roomOpt.isEmpty()) return new String[]{"大厅", ""};
         Room room = roomOpt.get();
         String no = room.getRoomNo();
@@ -84,6 +97,7 @@ public class AdminOpsController {
             }
             return new String[]{"房间 " + no, no};
         }
+        if (spectating) return new String[]{"观战中 · 等待开局", no};
         boolean host = room.getHostUserId() != null && room.getHostUserId() == uid;
         return new String[]{host ? ("房间 " + no + " · 房主等待开局") : ("房间 " + no + " · 等待开局"), no};
     }
@@ -112,6 +126,37 @@ public class AdminOpsController {
     public ResponseEntity<?> endAll() {
         int n = gameService.forceEndAll();
         return ResponseEntity.ok(Map.of("ok", true, "ended", n));
+    }
+
+    public record CleanupBody(Boolean rooms, Boolean accounts, Integer roomIdleHours,
+                              Integer accountMinAgeHours, Integer accountMaxLevel, Integer accountMaxGames) {}
+
+    /** 一键清理·预览：列出将被清理的无用房间与无用账号（不执行删除）。 */
+    @PostMapping("/cleanup/scan")
+    public ResponseEntity<?> cleanupScan(@RequestHeader(value = "Authorization", required = false) String auth,
+                                         @RequestBody(required = false) CleanupBody body) {
+        return ResponseEntity.ok(cleanup.scan(options(body), actingId(auth)));
+    }
+
+    /** 一键清理·执行：删除无用房间与无用账号。rooms/accounts 决定清理哪一类。 */
+    @PostMapping("/cleanup/run")
+    public ResponseEntity<?> cleanupRun(@RequestHeader(value = "Authorization", required = false) String auth,
+                                        @RequestBody(required = false) CleanupBody body) {
+        boolean doRooms = body == null || body.rooms() == null || Boolean.TRUE.equals(body.rooms());
+        boolean doAccounts = body != null && Boolean.TRUE.equals(body.accounts());
+        if (!doRooms && !doAccounts) return ResponseEntity.badRequest().body(Map.of("error", "请至少选择一项清理目标"));
+        return ResponseEntity.ok(cleanup.run(doRooms, doAccounts, options(body), actingId(auth)));
+    }
+
+    private AdminCleanupService.Options options(CleanupBody body) {
+        if (body == null) return new AdminCleanupService.Options(null, null, null, null);
+        return new AdminCleanupService.Options(body.roomIdleHours(), body.accountMinAgeHours(),
+                body.accountMaxLevel(), body.accountMaxGames());
+    }
+
+    private long actingId(String auth) {
+        String token = auth != null && auth.startsWith("Bearer ") ? auth.substring(7) : auth;
+        return authService.resolve(token).map(User::getId).orElse(-1L);
     }
 
     private static String csv(String s) {

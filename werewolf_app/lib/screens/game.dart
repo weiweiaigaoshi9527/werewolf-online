@@ -5,10 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../animations.dart';
 import '../api.dart';
+import '../feed_filter.dart';
 import '../hotkeys.dart';
+import '../marks.dart';
+import '../models.dart';
 import '../sfx.dart';
 import '../store.dart';
 import '../theme.dart';
+import 'appearance_panel.dart';
+import '../i18n.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -22,6 +27,19 @@ class _GameScreenState extends State<GameScreen> {
   final _chatFocus = FocusNode();
   late final AppStore _store;
   bool _micOn = false;
+
+  /// 中区停靠栏：0 = 对局记录，1 = 房间聊天，2 = 狼队频道（与网页版 dock-tabs 一致）。
+  int _dock = 0;
+  /// 记录筛选：分类 + 只看某座位（0 = 不限）。
+  String _feedCat = 'all';
+  int _feedSeat = 0;
+  /// AI 对话总结面板。
+  bool _summaryOpen = false;
+  bool _summaryLoading = false;
+  String? _summary;
+
+  /// 狼队频道只在「存活的狼 + 夜晚」时存在；关掉时即使停在那一栏也回落到记录页。
+  int get _dockIndex => (_dock == 2 && _store.game?['wolfChatEnabled'] != true) ? 0 : _dock;
 
   /// 身份牌翻牌揭示：GameScreen 的生命周期约等于一局，所以用一次性布尔即可，
   /// 不能用 gameId 去重——game.state 里的 gameId 只在终局那一次下发。
@@ -98,7 +116,57 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
-  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Tx(m)));
+
+  /// 发送当前停靠栏的输入：记录页下不发送（输入框只在聊天/狼队页出现）。
+  Future<void> _send() async {
+    final t = _chat.text.trim();
+    if (t.isEmpty) return;
+    _chat.clear();
+    try {
+      if (_dockIndex == 2) {
+        await _store.sendWolfChat(t);
+      } else {
+        await _store.sendChat(t);
+      }
+    } on AppError catch (e) {
+      if (mounted) _toast(e.message);
+    }
+  }
+
+  /// AI 归纳本局对话（只总结谁说了什么，不分析局面）。
+  Future<void> _runSummary() async {
+    setState(() {
+      _summaryLoading = true;
+      _summaryOpen = true;
+      _summary = null;
+    });
+    try {
+      final s = await _store.feedSummary();
+      if (mounted) setState(() => _summary = s.isEmpty ? '（本局还没有可总结的发言）' : s);
+    } on AppError catch (e) {
+      if (mounted) setState(() => _summary = '生成失败：${e.message}');
+    } finally {
+      if (mounted) setState(() => _summaryLoading = false);
+    }
+  }
+
+  /// 复制本局记录（纯中文，与网页版「⧉ 复制」同一份文案）。
+  Future<void> _copyFeed() async {
+    final g = _store.game ?? const {};
+    final feed = (g['feed'] as List?) ?? const [];
+    if (feed.isEmpty) {
+      _toast('还没有可复制的记录');
+      return;
+    }
+    final text = buildFeedExport(
+      feed: feed,
+      roomNo: '${g['roomNo'] ?? ''}',
+      day: (g['day'] as num?)?.toInt() ?? 1,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) _toast('已复制本局记录（${text.split("\n").length} 行）');
+  }
 
   Future<void> _toggleMic() async {
     if (_micOn) {
@@ -109,7 +177,11 @@ class _GameScreenState extends State<GameScreen> {
     final ok = await _store.startMic();
     if (!mounted) return;
     setState(() => _micOn = ok);
-    if (!ok) _toast('无法开启麦克风（语音服务未就绪或权限被拒）');
+    if (!ok) {
+      _toast(_store.voiceServiceReady
+          ? '无法开启麦克风（权限被拒或设备不可用）'
+          : '语音服务未就绪（服务端 ASR / TTS 未就绪或已关闭）');
+    }
   }
 
   Future<void> _act(Map<String, dynamic> a) async {
@@ -118,6 +190,111 @@ class _GameScreenState extends State<GameScreen> {
     } on AppError catch (e) {
       if (mounted) _toast(e.message);
     }
+  }
+
+  // ---------------- 座位标记（本地、仅自己可见、按房间持久化） ----------------
+
+  /// 快捷键 M：循环推进「我下一位玩家」的标记。
+  /// 座位下标口径与网页版 ux.js 一致：`(mySeatIdx + 1) % seats.length`；
+  /// 找不到本人座位时 mySeatIdx = -1，于是落到 0 号（同样是网页版的行为）。
+  Future<void> _cycleNextSeatMark() async {
+    final seats = (_store.game?['seats'] as List?) ?? const [];
+    if (seats.isEmpty) return;
+    final mySeat = _store.game?['mySeat'];
+    final idx = seats.indexWhere((s) => s is Map && s['seat'] == mySeat);
+    final next = seats[(idx + 1) % seats.length];
+    final seat = next is Map ? next['seat'] : null;
+    if (seat is num) await _store.cycleMark(seat.toInt());
+  }
+
+  /// 快捷键 T：随机换一个主题（与外观面板的 🎲 同一入口，网页端 THEME.random）。
+  Future<void> _randomTheme() async {
+    final t = await appearance.randomTheme();
+    if (mounted) _toast('${t.icon} ${t.name} 主题已应用');
+  }
+
+  /// 快捷键 D：切换紧凑 / 舒适密度（网页端 THEME.setDensity(!THEME.dense)）。
+  Future<void> _toggleDensity() async {
+    await appearance.toggleDensity();
+    if (mounted) _toast(appearance.dense ? '紧凑密度' : '舒适密度');
+  }
+
+  /// 标记面板：与网页版右侧「标记」面板同一份数据（点一次循环一级），另有「清空标记」。
+  /// 数据只在本地，服务端与其它玩家都看不到。
+  Future<void> _showMarkers() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: kPanel,
+      showDragHandle: true,
+      builder: (ctx) => Consumer<AppStore>(
+        builder: (ctx, store, _) {
+          final seats = (store.game?['seats'] as List?) ?? const [];
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Tx('🚩 座位标记',
+                            style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                      ),
+                      TextButton(onPressed: () => store.clearMarks(), child: const Tx('清空标记')),
+                    ],
+                  ),
+                  Tx('只有你自己看得到，按房间保存在本机',
+                      style: TextStyle(color: kDim, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 360),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final s in seats.cast<Map>()) _markRow(store, s),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _markRow(AppStore store, Map s) {
+    final seat = (s['seat'] as num?)?.toInt() ?? 0;
+    final lvl = store.marks[seat] ?? 0;
+    final alive = s['alive'] != false;
+    final c = markColor(lvl);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Tx('$seat号 ${s['nickname'] ?? ''}${alive ? '' : '（出局）'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: alive ? kText : kDim, fontSize: 13)),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: () => store.cycleMark(seat),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(88, 36),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              foregroundColor: c ?? kDim,
+              backgroundColor: c?.withOpacity(.16),
+              side: BorderSide(color: c ?? kBorder),
+            ),
+            child: Tx(markLabels[lvl]),
+          ),
+        ],
+      ),
+    );
   }
 
   // ---------------- 桌面键盘快捷键（工作流 B，对齐网页版 ux.js HOTKEYS） ----------------
@@ -142,6 +319,7 @@ class _GameScreenState extends State<GameScreen> {
     if (k == LogicalKeyboardKey.keyA) return 'a';
     if (k == LogicalKeyboardKey.keyF) return 'f';
     if (k == LogicalKeyboardKey.keyM) return 'm';
+    if (k == LogicalKeyboardKey.keyV) return 'v';
     if (k == LogicalKeyboardKey.slash) return '/';
     if (k == LogicalKeyboardKey.question) return '?';
     if (k == LogicalKeyboardKey.digit0) return '0';
@@ -203,7 +381,7 @@ class _GameScreenState extends State<GameScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: kPanel,
-        title: const Text('⌨️ 快捷键'),
+        title: const Tx('⌨️ 快捷键'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -217,13 +395,13 @@ class _GameScreenState extends State<GameScreen> {
                     children: [
                       SizedBox(
                         width: 92,
-                        child: Text(h.keys,
-                            style: const TextStyle(color: kAccent, fontWeight: FontWeight.bold)),
+                        child: Tx(h.keys,
+                            style: TextStyle(color: kAccent, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                          child: Text(h.desc,
-                              style: const TextStyle(color: kText, fontSize: 13, height: 1.35))),
+                          child: Tx(h.desc,
+                              style: TextStyle(color: kText, fontSize: 13, height: 1.35))),
                     ],
                   ),
                 ),
@@ -231,7 +409,7 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('关闭')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Tx('关闭')),
         ],
       ),
     );
@@ -265,7 +443,17 @@ class _GameScreenState extends State<GameScreen> {
           _doPass();
           break;
         case HotkeyAction.focusChat:
+          setState(() => _dock = 1); // 先切到房间聊天页（网页版 F 也会切 dock）
           _chatFocus.requestFocus();
+          break;
+        case HotkeyAction.cycleMark:
+          unawaited(_cycleNextSeatMark());
+          break;
+        case HotkeyAction.randomTheme:
+          unawaited(_randomTheme());
+          break;
+        case HotkeyAction.toggleDensity:
+          unawaited(_toggleDensity());
           break;
         case HotkeyAction.mic:
           unawaited(_toggleMic());
@@ -298,17 +486,27 @@ class _GameScreenState extends State<GameScreen> {
       onKeyEvent: _onKeyEvent,
       child: Scaffold(
         appBar: AppBar(
-          title: Text('${_phaseLabel(phase)} · 第 ${g['day'] ?? 1} 天'),
+          title: Tx('${_phaseLabel(phase)} · 第 ${g['day'] ?? 1} 天'),
           actions: [
             IconButton(
-              tooltip: store.sfx.enabled ? '关闭音效' : '开启音效',
+              tooltip: tr('座位标记（只有你自己看得到）'),
+              icon: const Icon(Icons.flag_outlined),
+              onPressed: () => unawaited(_showMarkers()),
+            ),
+            IconButton(
+              tooltip: tr('外观（主题 / 字号 / 密度 / 背景）'),
+              icon: const Icon(Icons.brightness_2),
+              onPressed: () => showAppearancePanel(context),
+            ),
+            IconButton(
+              tooltip: store.sfx.enabled ? tr('关闭音效') : tr('开启音效'),
               icon: Icon(store.sfx.enabled ? Icons.volume_up : Icons.volume_off),
               onPressed: () => store.toggleSfx(),
             ),
             if (store.isHost && phase != 'GAME_OVER')
               IconButton(
-                tooltip: '强制结束',
-                icon: const Icon(Icons.stop_circle_outlined, color: kBlood),
+                tooltip: tr('强制结束'),
+                icon: Icon(Icons.stop_circle_outlined, color: kBlood),
                 onPressed: () async {
                   try {
                     await store.endGame();
@@ -318,7 +516,7 @@ class _GameScreenState extends State<GameScreen> {
                 },
               ),
             IconButton(
-              tooltip: '离开房间',
+              tooltip: tr('离开房间'),
               icon: const Icon(Icons.logout),
               onPressed: () async {
                 try {
@@ -339,103 +537,91 @@ class _GameScreenState extends State<GameScreen> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.all(10),
                 children: [
-                  for (final s in seats) _seatChip(s as Map, mySeat),
+                  for (final s in seats)
+                    _seatChip(s as Map, mySeat, store.marks[(s['seat'] as num?)?.toInt()] ?? 0),
                 ],
               ),
             ),
             // 语音实时字幕
             if (store.voiceCaptions.isNotEmpty) _captionStrip(store),
-            // 记录：对局事件流 + WS 实时文字（聊天回声与旁白都只走 game.chat / narrator）
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  for (final c in store.gameChat.reversed)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Text(
-                        c.kind == 'narrator' ? '📢 ${c.text}' : '💬 ${c.name}：${c.text}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.4,
-                          color: c.kind == 'narrator' ? kDim : kText,
-                          fontStyle: c.kind == 'narrator' ? FontStyle.italic : FontStyle.normal,
-                        ),
-                      ),
-                    ),
-                  for (final e in feed.reversed)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Text(_feedLine(e as Map, seats), style: const TextStyle(fontSize: 13, height: 1.4)),
-                    ),
-                ],
-              ),
-            ),
+            // 中区：记录 / 房间聊天 / 狼队频道（与网页版 dock-tabs 一致）
+            _dockTabs(g),
+            Expanded(child: _dockBody(store, g, feed)),
             // 行动区
             _actionPanel(store, g, seats, mySeat),
-            // 聊天
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _chat,
-                        focusNode: _chatFocus,
-                        decoration: const InputDecoration(hintText: '说点什么…', isDense: true),
-                        onSubmitted: (t) {
-                          if (t.trim().isEmpty) return;
-                          store.sendChat(t.trim());
-                          _chat.clear();
-                        },
+            // 聊天输入：随停靠栏切换目标频道（房间聊天 / 狼队频道）
+            if (_dockIndex != 0)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _chat,
+                          focusNode: _chatFocus,
+                          maxLength: 200,
+                          decoration: InputDecoration(
+                            hintText: _dockIndex == 2 ? tr('狼队内部消息（队友可见）…') : tr('说点什么…'),
+                            isDense: true,
+                            counterText: '',
+                          ),
+                          onSubmitted: (_) => unawaited(_send()),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: () {
-                        final t = _chat.text.trim();
-                        if (t.isEmpty) return;
-                        store.sendChat(t);
-                        _chat.clear();
-                      },
-                      icon: const Icon(Icons.send, color: Color(0xFF1A1206)),
-                      style: IconButton.styleFrom(backgroundColor: kAccent),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: () => unawaited(_send()),
+                        icon: const Icon(Icons.send, color: Color(0xFF1A1206)),
+                        style: IconButton.styleFrom(backgroundColor: kAccent),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _seatChip(Map s, dynamic mySeat) {
+  Widget _seatChip(Map s, dynamic mySeat, int mark) {
     final alive = s['alive'] != false;
     final isMe = s['seat'] == mySeat;
+    final mc = markColor(mark);
     return Container(
       width: 96,
       margin: const EdgeInsets.only(right: 8),
       decoration: BoxDecoration(
         color: kPanel2,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isMe ? kAccent : (alive ? kBorder : kBorder.withOpacity(.4))),
+        border: Border.all(
+          color: isMe ? kAccent : (mc ?? (alive ? kBorder : kBorder.withOpacity(.4))),
+          width: (mc != null && !isMe) ? 1.6 : 1,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('#${s['seat']}', style: const TextStyle(color: kDim, fontSize: 11)),
-            Text('${s['nickname'] ?? ''}',
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Tx('#${s['seat']}', style: TextStyle(color: kDim, fontSize: 11)),
+                if (mc != null) ...[
+                  const SizedBox(width: 4),
+                  Tx(markLabels[mark], style: TextStyle(color: mc, fontSize: 10)),
+                ],
+              ],
+            ),
+            Tx('${s['nickname'] ?? ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: alive ? kMoon : kDim, fontSize: 12, fontWeight: FontWeight.bold)),
-            if (s['role'] != null) Text('${s['role']}', style: const TextStyle(color: kAccent, fontSize: 11)),
-            if (!alive) const Text('出局', style: TextStyle(color: kBlood, fontSize: 11)),
+            if (s['role'] != null) Tx('${s['role']}', style: TextStyle(color: kAccent, fontSize: 11)),
+            if (!alive) Tx('出局', style: TextStyle(color: kBlood, fontSize: 11)),
           ],
         ),
       ),
@@ -469,7 +655,7 @@ class _GameScreenState extends State<GameScreen> {
                 FilledButton.icon(
                   onPressed: () => store.returnToRoom(),
                   icon: const Icon(Icons.meeting_room_outlined, size: 18),
-                  label: const Text('返回房间'),
+                  label: const Tx('返回房间'),
                 ),
                 const SizedBox(width: 12),
                 OutlinedButton.icon(
@@ -481,7 +667,7 @@ class _GameScreenState extends State<GameScreen> {
                     }
                   },
                   icon: const Icon(Icons.logout, size: 18),
-                  label: const Text('退出房间'),
+                  label: const Tx('退出房间'),
                 ),
               ],
             ),
@@ -495,10 +681,10 @@ class _GameScreenState extends State<GameScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         color: kPanel,
-        child: Text(
+        child: Tx(
           actor != null && actor != 0 ? '⏳ 等待 $actor 号行动…' : '🌙 夜晚进行中…',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: kDim),
+          style: TextStyle(color: kDim),
         ),
       );
     }
@@ -513,10 +699,10 @@ class _GameScreenState extends State<GameScreen> {
           runSpacing: 8,
           children: [
             for (final t in aliveOthers)
-              ActionChip(label: Text('$t 号'), onPressed: () => _act({'target': t})),
+              ActionChip(label: Tx('$t 号'), onPressed: () => _act({'target': t})),
             if (allowPass)
               ActionChip(
-                  label: const Text('放弃/弃票'),
+                  label: const Tx('放弃/弃票'),
                   backgroundColor: kPanel,
                   onPressed: () => _act({'target': 0})),
           ],
@@ -529,15 +715,15 @@ class _GameScreenState extends State<GameScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_actionTitle(kind), style: const TextStyle(color: kAccent, fontWeight: FontWeight.bold)),
+          Tx(_actionTitle(kind), style: TextStyle(color: kAccent, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           if (kind == 'SPEECH' || kind == 'PK_SPEECH' || kind == 'LAST_WORDS')
             _speechPanel(kind)
           else if (kind == 'SHERIFF_SIGNUP')
             Row(children: [
-              FilledButton(onPressed: () => _act({'signup': true}), child: const Text('竞选上警')),
+              FilledButton(onPressed: () => _act({'signup': true}), child: const Tx('竞选上警')),
               const SizedBox(width: 10),
-              OutlinedButton(onPressed: () => _act({'signup': false}), child: const Text('不参与')),
+              OutlinedButton(onPressed: () => _act({'signup': false}), child: const Tx('不参与')),
             ])
           else if (kind == 'WITCH')
             _witchPanel(g, aliveOthers)
@@ -560,7 +746,7 @@ class _GameScreenState extends State<GameScreen> {
             minLines: 1,
             maxLines: 3,
             decoration: InputDecoration(
-              hintText: voiceOn ? '说话（🎙）或直接打字…（留空则过）' : '输入你的发言…（留空则过）',
+              hintText: voiceOn ? tr('说话（🎙）或直接打字…（留空则过）') : tr('输入你的发言…（留空则过）'),
               isDense: true,
             ),
           ),
@@ -576,13 +762,13 @@ class _GameScreenState extends State<GameScreen> {
             _act({'text': _speech.text.trim().isEmpty ? '（过）' : _speech.text.trim()});
             _speech.clear();
             if (mounted) setState(() => _micOn = false);
-          }, child: const Text('发言')),
+          }, child: const Tx('发言')),
           const SizedBox(height: 6),
           OutlinedButton(onPressed: () {
             if (_micOn) _store.stopMic();
             _act({'text': '（过）'});
             if (mounted) setState(() => _micOn = false);
-          }, child: const Text('过')),
+          }, child: const Tx('过')),
         ]),
       ],
     );
@@ -591,7 +777,7 @@ class _GameScreenState extends State<GameScreen> {
   Widget _micButton() {
     return IconButton.filled(
       onPressed: _toggleMic,
-      tooltip: _micOn ? '停止说话' : '说话',
+      tooltip: _micOn ? tr('停止说话') : tr('说话'),
       icon: Icon(_micOn ? Icons.mic : Icons.mic_none),
       color: const Color(0xFF1A1206),
       style: IconButton.styleFrom(backgroundColor: _micOn ? kBlood : kAccent),
@@ -610,7 +796,7 @@ class _GameScreenState extends State<GameScreen> {
         for (final c in show)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 1),
-            child: Text('${c.name}：${c.text}',
+            child: Tx('${c.name}：${c.text}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 12.5, color: c.kind == 'narrator' ? kDim : (c.mine ? kGreen : kText))),
@@ -644,11 +830,11 @@ class _GameScreenState extends State<GameScreen> {
         context: context,
         builder: (_) => AlertDialog(
           backgroundColor: kPanel,
-          title: const Text('举报这局的表现'),
-          content: TextField(controller: c, maxLength: 200, decoration: const InputDecoration(hintText: '原因（可留空）')),
+          title: const Tx('举报这局的表现'),
+          content: TextField(controller: c, maxLength: 200, decoration: InputDecoration(hintText: tr('原因（可留空）'))),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('提交')),
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Tx('取消')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Tx('提交')),
           ],
         ),
       );
@@ -685,7 +871,7 @@ class _GameScreenState extends State<GameScreen> {
       padding: const EdgeInsets.only(top: 10),
       child: Column(
         children: [
-          const Text('给这局的表现点个赞或安慰一下', style: TextStyle(color: kDim, fontSize: 12)),
+          Tx('给这局的表现点个赞或安慰一下', style: TextStyle(color: kDim, fontSize: 12)),
           const SizedBox(height: 6),
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -696,29 +882,29 @@ class _GameScreenState extends State<GameScreen> {
                   ListTile(
                     dense: true,
                     visualDensity: VisualDensity.compact,
-                    title: Text('${s['seat']}号 · ${s['nickname'] ?? ''}',
-                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kText, fontSize: 13)),
-                    subtitle: Text('👍${_kudosCount((s['userId'] as num).toInt(), 'PRAISE')} · 🫂${_kudosCount((s['userId'] as num).toInt(), 'COMFORT')}',
-                        style: const TextStyle(color: kDim, fontSize: 11)),
+                    title: Tx('${s['seat']}号 · ${s['nickname'] ?? ''}',
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kText, fontSize: 13)),
+                    subtitle: Tx('👍${_kudosCount((s['userId'] as num).toInt(), 'PRAISE')} · 🫂${_kudosCount((s['userId'] as num).toInt(), 'COMFORT')}',
+                        style: TextStyle(color: kDim, fontSize: 11)),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          tooltip: '点赞',
+                          tooltip: tr('点赞'),
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.thumb_up_outlined, size: 18, color: kGreen),
+                          icon: Icon(Icons.thumb_up_outlined, size: 18, color: kGreen),
                           onPressed: () => _kudos(store, gameId, (s['userId'] as num).toInt(), 'PRAISE', '点赞'),
                         ),
                         IconButton(
-                          tooltip: '安慰',
+                          tooltip: tr('安慰'),
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.volunteer_activism_outlined, size: 18, color: kMoon),
+                          icon: Icon(Icons.volunteer_activism_outlined, size: 18, color: kMoon),
                           onPressed: () => _kudos(store, gameId, (s['userId'] as num).toInt(), 'COMFORT', '安慰'),
                         ),
                         IconButton(
-                          tooltip: '举报',
+                          tooltip: tr('举报'),
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.flag_outlined, size: 18, color: kBlood),
+                          icon: Icon(Icons.flag_outlined, size: 18, color: kBlood),
                           onPressed: () => _kudos(store, gameId, (s['userId'] as num).toInt(), 'REPORT', '举报'),
                         ),
                       ],
@@ -742,11 +928,11 @@ class _GameScreenState extends State<GameScreen> {
       runSpacing: 8,
       children: [
         if (canSave)
-          ActionChip(label: Text('🧡 救 $killed 号'), onPressed: () => _act({'saveTarget': killed})),
+          ActionChip(label: Tx('🧡 救 $killed 号'), onPressed: () => _act({'saveTarget': killed})),
         if (canPoison)
           for (final t in aliveOthers)
-            ActionChip(label: Text('☠ $t'), backgroundColor: kPanel2, onPressed: () => _act({'poisonTarget': t})),
-        ActionChip(label: const Text('跳过'), backgroundColor: kPanel, onPressed: () => _act({'target': 0})),
+            ActionChip(label: Tx('☠ $t'), backgroundColor: kPanel2, onPressed: () => _act({'poisonTarget': t})),
+        ActionChip(label: const Tx('跳过'), backgroundColor: kPanel, onPressed: () => _act({'target': 0})),
       ],
     );
   }
@@ -784,27 +970,200 @@ class _GameScreenState extends State<GameScreen> {
       }[p] ??
           p;
 
-  String _feedLine(Map e, List seats) {
-    final t = e['type'];
-    String seatName(dynamic seat) {
-      final s = seats.cast<Map>().firstWhere((x) => x['seat'] == seat, orElse: () => const {});
-      return s.isEmpty ? '$seat 号' : '${s['nickname']}（$seat）';
-    }
+  // ---------------- 中区停靠栏：记录 / 房间聊天 / 狼队频道 ----------------
 
-    final who = e['actorSeat'] != null ? seatName(e['actorSeat']) : '';
-    switch (t) {
-      case 'SPEECH':
-        return '💬 $who：${e['detail'] ?? ''}';
-      case 'LAST_WORDS':
-        return '🕯 $who 遗言：${e['detail'] ?? ''}';
-      case 'VOTE_DETAIL':
-        return '🗳 ${e['detail'] ?? ''}';
-      case 'PLAYER_DIED':
-        return '💀 $who 出局';
-      case 'NARRATOR':
-        return '📣 ${e['detail'] ?? ''}';
+  Widget _dockTabs(Map g) {
+    final wolfOn = g['wolfChatEnabled'] == true;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+      child: Row(
+        children: [
+          _dockTab(0, '📋 对局记录'),
+          _dockTab(1, '💬 房间聊天'),
+          if (wolfOn) _dockTab(2, '🐺 狼队频道'),
+        ],
+      ),
+    );
+  }
+
+  Widget _dockTab(int index, String label) {
+    final active = _dockIndex == index;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: () => setState(() => _dock = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? kAccent.withOpacity(.18) : kPanel,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: active ? kAccent : kBorder),
+          ),
+          child: Tx(label, style: TextStyle(fontSize: 12.5, color: active ? kAccent : kDim)),
+        ),
+      ),
+    );
+  }
+
+  Widget _dockBody(AppStore store, Map g, List feed) {
+    switch (_dockIndex) {
+      case 1:
+        return _chatList(store.gameChat, wolf: false, empty: '还没有人说话…');
+      case 2:
+        return _chatList(store.wolfChat, wolf: true, empty: '狼队内部频道：只有存活的狼能看到这里。');
       default:
-        return '${e['detail'] ?? t ?? ''}';
+        return _feedList(feed);
     }
   }
+
+  Widget _chatList(List<WwChatLine> lines, {required bool wolf, required String empty}) {
+    if (lines.isEmpty) {
+      return Center(child: Tx(empty, style: TextStyle(color: kDim, fontSize: 13)));
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      children: [
+        for (final c in lines.reversed)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Tx(
+              c.kind == 'narrator' ? '📢 ${c.text}' : '${wolf ? '🐺' : '💬'} ${c.name}：${c.text}',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: c.kind == 'narrator' ? kDim : (wolf ? kBlood : kText),
+                fontStyle: c.kind == 'narrator' ? FontStyle.italic : FontStyle.normal,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 对局记录：分类筛选条 + AI 总结面板 + 逐条记录（点条目可只看该座位）。
+  Widget _feedList(List feed) {
+    final rows = <Map>[];
+    for (final e in feed) {
+      if (e is Map && feedMatch(e.cast<String, dynamic>(), cat: _feedCat, seat: _feedSeat)) rows.add(e);
+    }
+    return Column(
+      children: [
+        _feedTools(),
+        if (_summaryOpen) _summaryBox(),
+        Expanded(
+          child: rows.isEmpty
+              ? Center(
+                  child: Tx(feed.isEmpty ? '本局还没有记录。' : '没有符合条件的记录。',
+                      style: TextStyle(color: kDim, fontSize: 13)),
+                )
+              : ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: [for (final e in rows.reversed) _feedRow(e)],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _feedTools() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final c in feedCategories)
+            _pill(c.$2, active: _feedCat == c.$1, onTap: () => setState(() => _feedCat = c.$1)),
+          if (_feedSeat > 0)
+            _pill('只看 $_feedSeat 号 ✕', active: true, onTap: () => setState(() => _feedSeat = 0)),
+          _pill(_summaryLoading ? '🧠 生成中…' : '🧠 AI 总结', active: false, onTap: _summaryLoading ? null : () => unawaited(_runSummary())),
+          _pill('⧉ 复制', active: false, onTap: () => unawaited(_copyFeed())),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(String label, {required bool active, VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? kAccent.withOpacity(.18) : kPanel2,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: active ? kAccent : kBorder),
+        ),
+        child: Tx(label,
+            style: TextStyle(fontSize: 11.5, color: onTap == null ? kDim : (active ? kAccent : kText))),
+      ),
+    );
+  }
+
+  Widget _summaryBox() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: kPanel,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Tx('🧠 AI 对话总结', style: TextStyle(color: kAccent, fontSize: 12.5))),
+              GestureDetector(
+                onTap: () => setState(() => _summaryOpen = false),
+                child: Tx('✕', style: TextStyle(color: kDim, fontSize: 12.5)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Tx(
+            _summaryLoading ? '正在归纳本局发言…' : (_summary ?? ''),
+            style: TextStyle(color: kText, fontSize: 12.5, height: 1.45),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedRow(Map e) {
+    final t = '${e['type'] ?? ''}';
+    final actor = (e['actor'] as num?)?.toInt() ?? 0;
+    final night = t == 'NIGHT_ACTION' || t == 'NIGHT_RESOLVE';
+    return InkWell(
+      onTap: actor > 0 ? () => setState(() => _feedSeat = _feedSeat == actor ? 0 : actor) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Tx(
+          '${_feedEmoji(t)} ${feedTextZh(e)}',
+          style: TextStyle(fontSize: 13, height: 1.4, color: night ? kDim : kText),
+        ),
+      ),
+    );
+  }
+
+  /// 事件类型 → 前缀图标（对齐网页版 feedLine）。
+  String _feedEmoji(String t) => const {
+        'SPEECH': '💬',
+        'LAST_WORDS': '💀',
+        'PLAYER_DIED': '☠️',
+        'DAWN_ANNOUNCE': '🌅',
+        'VOTE_RESULT': '🗳️',
+        'VOTE_DETAIL': '🗳️',
+        'SHOOT': '🔫',
+        'IDIOT_REVEAL': '🤪',
+        'WHITE_WOLF_BLOWUP': '💥',
+        'SHERIFF_WIN': '👑',
+        'SHERIFF_SIGNUP': '🙋',
+        'SHERIFF_WITHDRAW': '🙋‍♂️',
+        'NIGHT_ACTION': '🌙',
+        'NIGHT_RESOLVE': '🌙',
+      }[t] ??
+      '·';
 }

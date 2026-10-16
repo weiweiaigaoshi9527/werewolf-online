@@ -141,24 +141,19 @@ void main() {
       expect(m.containsKey('enabled'), isTrue);
       debugPrint('[live] voice.hello enabled=${m['enabled']} sampleRate=${m['sampleRate']}');
     });
-    test('7. 模式开关必须四字段齐发（缺字段会被后端原始 boolean 绑成 false）', () async {
+    test('7. 模式开关必须三字段齐发（缺字段会被后端原始 boolean 绑成 false）', () async {
       await store.createRoom();
-      await store.setMode(duoMode: true);
-      expect(store.room?['duoMode'], isTrue);
       await store.setMode(huntCity: true);
       expect(store.room?['huntCity'], isTrue);
-      expect(store.room?['duoMode'], isTrue, reason: '只切 huntCity 绝不能把 duoMode 静默关掉');
       await store.setMode(voiceMode: true, anonymous: true);
-      expect(store.room?['duoMode'], isTrue);
       expect(store.room?['huntCity'], isTrue);
       // 未显式传入的项必须按当前房间视图回填，而不是回落到 false
       await store.setMode(voiceMode: false);
       expect(store.room?['anonymous'], isTrue);
-      expect(store.room?['duoMode'], isTrue);
       await store.leaveRoom();
     });
 
-    test('8. 双客户端：duo 邀请→轮询→接受→解除，再转让房主并踢人', () async {
+    test('8. 双客户端：转让房主并踢人', () async {
       final b = AppStore(ApiClient(config));
       addTearDown(b.dispose);
       expect(await b.login(user2, pass2), isTrue, reason: '第二个账号登录失败');
@@ -172,24 +167,8 @@ void main() {
               ? true
               : null);
 
-      await store.setMode(duoMode: true);
       final aId = store.user!['id'] as int;
       final bId = b.user!['id'] as int;
-      await store.inviteDuo(bId);
-
-      final inv = await pollUntil(b.pollDuoInvite, reason: 'B 轮询到组队邀请');
-      expect(inv['fromUserId'], aId);
-      expect(inv['fromName'], store.user?['nickname']);
-
-      await b.acceptDuo(aId);
-      final pair = b.duoPairOfMine();
-      expect(pair, isNotNull, reason: '接受后 B 必须查到自己所在的座位对');
-      expect(pair!.length, 2);
-      expect(pair.contains(b.mySeat), isTrue);
-
-      await b.cancelDuo();
-      await waitFor('解除后 duos 清空',
-          () => ((b.room?['duos'] as List?)?.isEmpty ?? false) ? true : null);
 
       // 转让房主：A 交出管理权，B 成为房主后把 A 踢出
       await store.transferHost(bId);
@@ -464,17 +443,6 @@ Future<T> waitFor<T>(String what, T? Function() read, {int timeoutMs = 15000}) a
     await Future<void>.delayed(const Duration(milliseconds: 120));
   }
   throw StateError('等待超时：$what（${timeoutMs}ms 内未达成）');
-}
-
-/// 异步版：条件本身要发一次请求才能判定（如 duo 邀请只能靠 GET /duo/pending 拿）。
-Future<T> pollUntil<T>(Future<T?> Function() read, {String reason = '', int timeoutMs = 15000}) async {
-  final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
-  while (DateTime.now().isBefore(deadline)) {
-    final v = await read();
-    if (v != null) return v;
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-  }
-  throw StateError('轮询超时：${reason.isEmpty ? '条件' : reason}（${timeoutMs}ms 内未达成）');
 }
 
 class _InsecureOverrides extends HttpOverrides {

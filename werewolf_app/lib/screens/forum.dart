@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 论坛：列表 + 分类筛选 + 发帖 + 详情回复。
 /// 契约照抄服务端 ForumController：列表**无分页**（全量数组，正文超 200 字服务端已截断），
@@ -57,7 +58,7 @@ class _ForumScreenState extends State<ForumScreen> {
       builder: (c) => StatefulBuilder(
         builder: (c, setLocal) => AlertDialog(
           backgroundColor: kPanel,
-          title: const Text('发新帖'),
+          title: const Tx('发新帖'),
           content: SizedBox(
             width: 420,
             child: Column(
@@ -66,27 +67,27 @@ class _ForumScreenState extends State<ForumScreen> {
                 TextField(
                   controller: title,
                   maxLength: 80,
-                  decoration: const InputDecoration(hintText: '标题（最多 80 字）'),
+                  decoration: InputDecoration(hintText: tr('标题（最多 80 字）')),
                 ),
                 TextField(
                   controller: body,
                   maxLines: 5,
                   maxLength: 4000,
-                  decoration: const InputDecoration(hintText: '正文（最多 4000 字）'),
+                  decoration: InputDecoration(hintText: tr('正文（最多 4000 字）')),
                 ),
                 DropdownButton<String>(
                   isExpanded: true,
                   value: cat,
                   dropdownColor: kPanel2,
-                  items: [for (final x in categories) DropdownMenuItem(value: x, child: Text(x))],
+                  items: [for (final x in categories) DropdownMenuItem(value: x, child: Tx(x))],
                   onChanged: (v) => setLocal(() => cat = v ?? cat),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('发布')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Tx('取消')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Tx('发布')),
           ],
         ),
       ),
@@ -108,16 +109,16 @@ class _ForumScreenState extends State<ForumScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (!store.feat('forum')) {
-      return const Scaffold(
-        body: Center(child: Text('论坛已被管理员关闭', style: TextStyle(color: kDim))),
+      return Scaffold(
+        body: Center(child: Tx('论坛已被管理员关闭', style: TextStyle(color: kDim))),
       );
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('论坛'),
+        title: const Tx('论坛'),
         actions: [
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-          IconButton(onPressed: _compose, icon: const Icon(Icons.edit_outlined), tooltip: '发新帖'),
+          IconButton(onPressed: _compose, icon: const Icon(Icons.edit_outlined), tooltip: tr('发新帖')),
         ],
       ),
       body: StateBox(
@@ -135,7 +136,7 @@ class _ForumScreenState extends State<ForumScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
-                        label: Text(c),
+                        label: Tx(c),
                         selected: _filter == c,
                         onSelected: (_) => setState(() => _filter = c),
                       ),
@@ -167,19 +168,19 @@ class _ForumScreenState extends State<ForumScreen> {
         },
         title: Row(
           children: [
-            if (p['pinned'] == true) const Padding(padding: EdgeInsets.only(right: 6), child: Text('📌')),
+            if (p['pinned'] == true) const Padding(padding: EdgeInsets.only(right: 6), child: Tx('📌')),
             Expanded(
-              child: Text('${p['title']}',
-                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+              child: Tx('${p['title']}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: Text(
+          child: Tx(
             '${p['category'] ?? '综合'} · ${p['author'] ?? ''} · ${fmtAt(p['at'])} · ${(p['replyCount'] as num?)?.toInt() ?? 0} 回复${mine ? ' · 我的' : ''}',
             maxLines: 2,
-            style: const TextStyle(color: kDim, fontSize: 12),
+            style: TextStyle(color: kDim, fontSize: 12),
           ),
         ),
       ),
@@ -235,11 +236,11 @@ class _ForumDetailScreenState extends State<ForumDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('删除帖子'),
-        content: const Text('删除后不可恢复，确定吗？'),
+        title: const Tx('删除帖子'),
+        content: const Tx('删除后不可恢复，确定吗？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('删除')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Tx('取消')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Tx('删除')),
         ],
       ),
     );
@@ -259,19 +260,19 @@ class _ForumDetailScreenState extends State<ForumDetailScreen> {
     final mine = _post['userId'] == context.read<AppStore>().user?['id'];
     return Scaffold(
       appBar: AppBar(
-        title: Text('${_post['category'] ?? ''} · 论坛', maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [if (mine) IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: _delete)],
+        title: Tx('${_post['category'] ?? ''} · 论坛', maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [if (mine) IconButton(tooltip: tr('删除'), icon: const Icon(Icons.delete_outline), onPressed: _delete)],
       ),
       body: StateBox(
         loading: _loading,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           children: [
-            Text('${_post['title']}', style: const TextStyle(color: kMoon, fontSize: 19, fontWeight: FontWeight.bold)),
+            Tx('${_post['title']}', style: TextStyle(color: kMoon, fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            Text('${_post['author'] ?? ''} · ${fmtAt(_post['at'])}', style: const TextStyle(color: kDim, fontSize: 12)),
+            Tx('${_post['author'] ?? ''} · ${fmtAt(_post['at'])}', style: TextStyle(color: kDim, fontSize: 12)),
             const SizedBox(height: 12),
-            Text('${_post['content'] ?? ''}', style: const TextStyle(height: 1.7, fontSize: 14.5)),
+            Tx('${_post['content'] ?? ''}', style: const TextStyle(height: 1.7, fontSize: 14.5)),
             SectionTitle('回复 ${replies.length}'),
             for (final r in replies)
               Container(
@@ -281,9 +282,9 @@ class _ForumDetailScreenState extends State<ForumDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${r['author'] ?? ''} · ${fmtAt(r['at'])}', style: const TextStyle(color: kDim, fontSize: 11.5)),
+                    Tx('${r['author'] ?? ''} · ${fmtAt(r['at'])}', style: TextStyle(color: kDim, fontSize: 11.5)),
                     const SizedBox(height: 4),
-                    Text('${r['content'] ?? ''}', style: const TextStyle(fontSize: 13.5, height: 1.5)),
+                    Tx('${r['content'] ?? ''}', style: const TextStyle(fontSize: 13.5, height: 1.5)),
                   ],
                 ),
               ),
@@ -299,7 +300,7 @@ class _ForumDetailScreenState extends State<ForumDetailScreen> {
                 child: TextField(
                   controller: _reply,
                   maxLength: 2000,
-                  decoration: const InputDecoration(hintText: '写回复…', isDense: true),
+                  decoration: InputDecoration(hintText: tr('写回复…'), isDense: true),
                   onSubmitted: (_) => _send(),
                 ),
               ),

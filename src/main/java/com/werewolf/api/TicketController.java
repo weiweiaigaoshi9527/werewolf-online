@@ -25,6 +25,36 @@ public class TicketController {
 
     public record CreateBody(String category, String title, String content, Long targetUserId, String roomNo) {}
     public record ReplyBody(String content) {}
+    public record SupportBody(String content) {}
+
+    /* ---------- 在线客服（AI 客服 + 转人工） ---------- */
+
+    /** 当前客服会话快照（无会话时 ticketId 为 null）。 */
+    @GetMapping("/support")
+    public ResponseEntity<?> support(@RequestHeader(value = "Authorization", required = false) String auth) {
+        Optional<User> u = authService.resolve(AuthController.stripBearer(auth));
+        if (u.isEmpty()) return ResponseEntity.status(401).body(Map.of("error", "未登录或会话已过期"));
+        return ResponseEntity.ok(ticketService.supportSnapshot(u.get().getId()));
+    }
+
+    /** 给在线客服发一条消息；没有会话会自动建单。客服答复异步生成，前端稍后刷新。 */
+    @PostMapping("/support/message")
+    public ResponseEntity<?> supportMessage(@RequestHeader(value = "Authorization", required = false) String auth,
+                                            @RequestBody SupportBody body) {
+        Optional<User> u = authService.resolve(AuthController.stripBearer(auth));
+        if (u.isEmpty()) return ResponseEntity.status(401).body(Map.of("error", "未登录或会话已过期"));
+        Map<String, Object> r = ticketService.supportSend(u.get().getId(), body == null ? null : body.content());
+        return r.containsKey("error") ? ResponseEntity.badRequest().body(r) : ResponseEntity.ok(r);
+    }
+
+    /** 请求转人工客服。 */
+    @PostMapping("/support/human")
+    public ResponseEntity<?> supportHuman(@RequestHeader(value = "Authorization", required = false) String auth) {
+        Optional<User> u = authService.resolve(AuthController.stripBearer(auth));
+        if (u.isEmpty()) return ResponseEntity.status(401).body(Map.of("error", "未登录或会话已过期"));
+        String err = ticketService.supportHuman(u.get().getId());
+        return err == null ? ResponseEntity.ok(Map.of("ok", true)) : ResponseEntity.badRequest().body(Map.of("error", err));
+    }
 
     @PostMapping
     public ResponseEntity<?> create(@RequestHeader(value = "Authorization", required = false) String auth,

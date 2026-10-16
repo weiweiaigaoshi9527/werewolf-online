@@ -35,14 +35,23 @@ import java.util.concurrent.*;
 public class LiveGameService {
 
     private static final Logger log = LoggerFactory.getLogger(LiveGameService.class);
+    /**
+     * AI/托管座位的默认昵称池。
+     * 数量必须 ≥ 最大板子人数（24）：否则座位数超过池大小时会按取模回绕，出现两个 AI 同名。
+     */
     private static final String[] BOT_NAMES = {
-            "月影", "银狼", "夜莺", "灰羽", "烛火", "雾隐", "孤星", "寒鸦", "暮色", "幽兰", "赤瞳", "青岚"
+            "月影", "银狼", "夜莺", "灰羽", "烛火", "雾隐", "孤星", "寒鸦", "暮色", "幽兰", "赤瞳", "青岚",
+            "白露", "疏影", "长风", "惊蛰", "子规", "望舒", "南栀", "北辰", "半夏", "流萤", "拾光", "山鬼"
     };
 
+    /** 可选默认头像数量，与前端 app.js 中 avatarEmoji 的列表长度保持一致。 */
+    private static final int BOT_AVATAR_COUNT = 20;
+
     /**
-     * 白狼王自爆的动作标记。
+     * 狼人白天自爆的动作标记。
      * GameAction 没有 blowUp 字段，且白天 currentActionKind 仍为 SPEECH/VOTE 等，
-     * 因此用约定的文本标记触发“附加可选动作”：前端/AI 提交该标记即表示自爆，目标放在 target 上。
+     * 因此用约定的文本标记触发“附加可选动作”：前端/AI 提交该标记即表示自爆。
+     * 白狼王自爆时目标放在 target 上（带走一人）；普通狼人自爆 target 必须为 0（不带人）。
      * 这样无需修改 currentActionKind 的语义，也不影响正常发言/投票流程。
      */
     public static final String BLOWUP_MARKER = "__WHITE_WOLF_BLOWUP__";
@@ -63,6 +72,8 @@ public class LiveGameService {
     private final com.werewolf.ws.WsPush wsPush;
     private final VoiceProperties vprops;
     private final SpeechDirector director;
+    private final com.werewolf.service.BoardService boardService;
+    private final GamePersistenceService persistence;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ScheduledExecutorService scheduler =
             Executors.newScheduledThreadPool(2, r -> { Thread t = new Thread(r, "ww-game"); t.setDaemon(true); return t; });
@@ -82,7 +93,9 @@ public class LiveGameService {
                            com.werewolf.service.RoomMembership membership,
                            com.werewolf.repo.RoomRepository roomRepo,
                            com.werewolf.ws.WsPush wsPush,
-                           VoiceProperties vprops, SpeechDirector director) {
+                           VoiceProperties vprops, SpeechDirector director,
+                           com.werewolf.service.BoardService boardService,
+                           GamePersistenceService persistence) {
         this.presence = presence;
         this.recordRepo = recordRepo;
         this.eventRepo = eventRepo;
@@ -96,6 +109,8 @@ public class LiveGameService {
         this.wsPush = wsPush;
         this.vprops = vprops;
         this.director = director;
+        this.boardService = boardService;
+        this.persistence = persistence;
     }
 
     public LiveGame get(long roomId) { return active.get(roomId); }
@@ -106,11 +121,58 @@ public class LiveGameService {
     /** 当前进行中的对局数（后台系统状态用）。 */
     public int activeGameCount() { return active.size(); }
 
+    /* ================= 重启恢复 ================= */
+
+    /**
+     * 启动时恢复未结束的对局：读取落盘快照，重建 LiveGame 并重新驱动。
+     * 必须在「残留房间自愈」(StaleGameResetter) 之前执行，否则未完成的房间会被误复位为等待中。
+     * 仅在对应房间仍存在且状态为 PLAYING 时恢复，否则丢弃该快照。
+     */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    @org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
+    public void restoreAll() {
+        int n = 0;
+        try {
+            for (GameSnapshot s : persistence.loadAll()) {
+                try {
+                    com.werewolf.model.Room room = roomRepo.findById(s.roomId).orElse(null);
+                    if (room == null || !"PLAYING".equals(room.getStatus())) {
+                        persistence.delete(s.roomId);
+                        continue;
+                    }
+                    if (active.containsKey(s.roomId)) continue;
+                    LiveGame lg = new LiveGame(s.roomId, s.roomNo, s.engine, s.seats, s.userToSeat, s.seed,
+                            s.huntByBorder, s.voiceMode, s.anonymous, s.itemMatch, s.hostUserId, s.aiOnly);
+                    lg.gameId = s.gameId;
+                    if (active.putIfAbsent(s.roomId, lg) != null) continue;
+                    n++;
+                    log.info("恢复未结束对局 room={} 阶段={} 天数={}", s.roomNo, s.engine.phase(), s.engine.day());
+                    pump(lg);
+                } catch (Exception e) {
+                    log.warn("恢复对局失败 room={}: {}", s.roomId, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("启动恢复对局异常: {}", e.getMessage());
+        }
+        if (n > 0) log.info("启动恢复：{} 局进行中的对局已继续", n);
+    }
+
+    /** 服务优雅关闭：把所有进行中的对局全量落盘一次，确保重启后可从最近状态继续。 */
+    @jakarta.annotation.PreDestroy
+    public void onShutdown() {
+        int n = 0;
+        for (LiveGame lg : active.values()) {
+            try { persistence.saveNow(lg); n++; } catch (Exception ignored) {}
+        }
+        log.info("服务关闭：已保存 {} 局进行中的对局快照", n);
+    }
+
     /* ================= 开始 ================= */
 
     public void start(long roomId, String roomNo, List<SeatInfo> knownSeats, BoardConfig board,
                       boolean allBots, boolean huntByBorder, long seed, boolean voiceMode, boolean anonymous,
-                      boolean itemMatch, long hostUserId, List<long[]> duoUserPairs) {
+                      boolean itemMatch, long hostUserId, boolean aiOnly) {
         int total = board.total();
         List<SeatInfo> seats = new ArrayList<>();
         Map<Long, Integer> userToSeat = new HashMap<>();
@@ -119,7 +181,7 @@ public class LiveGameService {
             int s = 1;
             for (SeatInfo h : knownSeats) {
                 SeatInfo hi = new SeatInfo(s, h.userId, h.nickname, h.avatarId, h.bot,
-                        h.avatarUrl, h.nickColor, h.frameColor, h.title, h.vip);
+                        h.avatarUrl, h.nickColor, h.frameColor, h.title, h.vip, h.skin3d);
                 seats.add(hi);
                 if (!h.bot) userToSeat.put(h.userId, s);
                 s++;
@@ -133,12 +195,17 @@ public class LiveGameService {
             // 座位分配洗牌：随机把玩家重排到 1..N 号位，使“显示号 = 座位号 = 行动/发言顺序”，
             // 界面从左到右即回合顺序；同时保留号码打乱（玩家拿到的号是随机的）以隐藏身份。
             Collections.shuffle(seats, new Random(seed ^ 0x5EED123L));
+            // 匿名模式额外打乱 3D 皮肤：皮肤本身也是身份线索（熟人能凭造型认出是谁），
+            // 这里用同一局种子做确定性重排，保证所有客户端看到的一致、且与真实身份解耦。
+            List<String> skinPool = new ArrayList<>();
+            for (SeatInfo si : seats) skinPool.add(si.skin3d);
+            Collections.shuffle(skinPool, new Random(seed ^ 0x5A1E7C3L));
             userToSeat.clear();
             List<SeatInfo> reassigned = new ArrayList<>();
             int s = 1;
             for (SeatInfo si : seats) {
                 reassigned.add(new SeatInfo(s, si.userId, si.nickname, si.avatarId, si.bot,
-                        si.avatarUrl, si.nickColor, si.frameColor, si.title));
+                        si.avatarUrl, si.nickColor, si.frameColor, si.title, si.vip, skinPool.get(s - 1)));
                 if (!si.bot) userToSeat.put(si.userId, s);
                 s++;
             }
@@ -146,16 +213,7 @@ public class LiveGameService {
         }
 
         List<Long> userIds = seats.stream().map(x -> x.userId).toList();
-        // 双人组队：把“用户对”映射为“座位对”（匿名洗牌后座位已重排，必须在最终座位定下来后再映射）
-        List<int[]> duoSeatPairs = new ArrayList<>();
-        if (duoUserPairs != null) {
-            for (long[] pair : duoUserPairs) {
-                Integer sa = userToSeat.get(pair[0]);
-                Integer sb = userToSeat.get(pair[1]);
-                if (sa != null && sb != null) duoSeatPairs.add(new int[]{sa, sb});
-            }
-        }
-        GameEngine engine = new GameEngine(board, userIds, seed, huntByBorder, duoSeatPairs);
+        GameEngine engine = new GameEngine(board, userIds, seed, huntByBorder);
 
         // 开局应用真人携带的功能道具（仅“功能道具赛”开启时生效）
         Map<Integer, String> seatItem = new HashMap<>();
@@ -174,7 +232,7 @@ public class LiveGameService {
         Map<Integer, SeatInfo> seatMap = new LinkedHashMap<>();
         for (SeatInfo si : seats) seatMap.put(si.seat, si);
 
-        LiveGame lg = new LiveGame(roomId, roomNo, engine, seatMap, userToSeat, seed, huntByBorder, voiceMode, anonymous, itemMatch, hostUserId);
+        LiveGame lg = new LiveGame(roomId, roomNo, engine, seatMap, userToSeat, seed, huntByBorder, voiceMode, anonymous, itemMatch, hostUserId, aiOnly);
         // 原子占位：并发/双击开局时，只有一个请求能成功放入，避免同一房间产生两局并存、相互污染推送与结算
         LiveGame prev = active.putIfAbsent(roomId, lg);
         if (prev != null) {
@@ -187,8 +245,68 @@ public class LiveGameService {
     }
 
     private SeatInfo botSeat(int seat, long seed) {
-        String name = BOT_NAMES[(int) ((seat + seed) % BOT_NAMES.length)];
-        return new SeatInfo(seat, -(long) seat, name, (seat % 12) + 1, true);
+        int n = BOT_NAMES.length;
+        // 以 seed 做整池轮转：同一局内座位 1..n 取到的名字互不相同（避免 13 号位起与前面重名）。
+        // 用 floorMod 而非 %，避免 seed（nanoTime 可能为负）导致下标为负而越界。
+        int idx = (int) Math.floorMod((long) seat - 1 + seed, n);
+        String skin = BOT_SKINS[(int) Math.floorMod((long) seat - 1 + seed, BOT_SKINS.length)];
+        return new SeatInfo(seat, -(long) seat, BOT_NAMES[idx], (seat - 1) % BOT_AVATAR_COUNT + 1, true,
+                null, null, null, null, 0, skin);
+    }
+
+    /** 托管/AI 座位的 3D 皮肤池：让 AI 也有造型差异（按座位 + seed 确定性轮转）。 */
+    private static final String[] BOT_SKINS = {
+            "villager", "wolf", "knight", "witch", "ghost", "jester",
+            "frost", "vampire", "shadow", "royal", "reaper"
+    };
+
+    /* ================= 全 AI 队局（观战房） ================= */
+
+    /** 全 AI 观战房：一局结束后自动续开下一局的等待时长（秒），给观战者留出看结算的时间。 */
+    private static final long AI_SHOW_RESTART_DELAY_SECONDS = 10L;
+    /** 观战房未设置板子时的兜底板子（12 人预女猎白）。 */
+    private static final Map<String, Integer> AI_SHOW_DEFAULT_BOARD = Map.of(
+            "WEREWOLF", 4, "VILLAGER", 4, "SEER", 1, "WITCH", 1, "HUNTER", 1, "IDIOT", 1);
+
+    /**
+     * 以「全 AI 队局」方式开一局：所有座位都是 AI，真人只能观战。
+     * 房间必须已存在且标记为 aiOnly，房间状态会被置为 PLAYING。
+     */
+    public String startAiShow(com.werewolf.model.Room room, BoardConfig board) {
+        if (room == null) return "房间不存在";
+        if (active.containsKey(room.getId())) return "本房间已有进行中的对局";
+        room.setStatus("PLAYING");
+        room.setUpdatedAt(LocalDateTime.now());
+        roomRepo.save(room);
+        boolean huntByBorder = !room.isHuntCity();
+        start(room.getId(), room.getRoomNo(), List.of(), board, true, huntByBorder, System.nanoTime(),
+                false, false, false, room.getHostUserId() == null ? -1L : room.getHostUserId(), true);
+        return null;
+    }
+
+    /** 观战房续开：读取房间当前板子，重新开一局全 AI 对局。 */
+    private void scheduleAiShowRestart(LiveGame lg) {
+        if (!lg.aiOnly) return;
+        final long roomId = lg.roomId;
+        try {
+            scheduler.schedule(() -> {
+                try {
+                    com.werewolf.model.Room room = roomRepo.findById(roomId).orElse(null);
+                    if (room == null || !room.isAiOnly()) return;      // 房间已解散/已改为普通房
+                    if (active.containsKey(roomId)) return;            // 已有新局在跑
+                    if (membership.membersOf(roomId).isEmpty()) return; // 没人看了就停，避免空转消耗
+                    Map<String, Integer> counts = boardService.parse(room.getBoardConfig());
+                    BoardConfig board = boardService.toBoard(counts != null ? counts : AI_SHOW_DEFAULT_BOARD);
+                    String err = startAiShow(room, board);
+                    if (err != null) log.warn("全 AI 观战房续开失败 room={}: {}", room.getRoomNo(), err);
+                    else log.info("全 AI 观战房续开新一局 room={}", room.getRoomNo());
+                } catch (Exception e) {
+                    log.warn("全 AI 观战房续开异常 room={}: {}", roomId, e.getMessage());
+                }
+            }, AI_SHOW_RESTART_DELAY_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.debug("安排观战房续开失败: {}", e.getMessage());
+        }
     }
 
     /* ================= 推进 ================= */
@@ -322,8 +440,8 @@ public class LiveGameService {
         Player me = g.bySeat(seat);
         Random rnd = lg.rnd;
         String pendingSpeak = null;
-        // 托管/超时兜底：白狼王白天有机会随机自爆带走一名敌方关键角色；无法自爆时退回正常流程。
-        if (rnd.nextDouble() < AUTO_BLOWUP_CHANCE && submitAutoBlowUp(g, seat, rnd)) {
+        // 托管/超时兜底：白天行动者若是可自爆的狼人，按概率发起自爆（白狼王带人、普通狼人只自爆）。
+        if (submitAutoBlowUp(g, seat, rnd)) {
             return null;
         }
         switch (g.currentActionKind()) {
@@ -334,8 +452,25 @@ public class LiveGameService {
             case "CROW" -> g.submitCrow(autoPolicy.crowTarget(g, me, rnd));
             case "SILENCER" -> g.submitSilencer(autoPolicy.silencerTarget(g, me, rnd));
             case "SHOOT" -> g.submitShoot(seat, autoPolicy.shootTarget(g, me, rnd));
+            case "SHERIFF_TRANSFER" -> {
+                // 托管/超时：随机把警徽交给一名存活玩家；无人可交则撕毁
+                List<Integer> cand = new ArrayList<>();
+                for (Player p : g.alive()) if (p.seat != seat) cand.add(p.seat);
+                g.submitSheriffTransfer(cand.isEmpty() ? 0 : cand.get(rnd.nextInt(cand.size())));
+            }
+            case "SHERIFF_ORDER" -> {
+                // 托管/超时：默认从警右（座位号更大的下一位）开始发言
+                List<Integer> seats = g.alive().stream().map(p -> p.seat).sorted().toList();
+                int start = 0;
+                if (!seats.isEmpty()) {
+                    int idx = seats.indexOf(seat);
+                    start = idx < 0 ? seats.get(0) : seats.get((idx + 1) % seats.size());
+                }
+                g.submitSheriffOrder(start);
+            }
             case "LAST_WORDS" -> { String line = autoLastWords(seat); g.submitLastWords(seat, line); pendingSpeak = line; }
             case "SHERIFF_SIGNUP" -> g.submitSheriffSignup(seat, autoPolicy.sheriffSignup(g, me, rnd));
+            case "SHERIFF_WITHDRAW" -> g.submitSheriffWithdraw(seat, autoPolicy.sheriffWithdraw(g, me, rnd));
             case "SHERIFF_VOTE" -> g.submitSheriffVote(seat, autoPolicy.sheriffVote(g, me, new ArrayList<>(g.sheriffCandidates()), rnd));
             case "SPEECH" -> { String line = autoSpeech(g, seat); g.submitSpeech(seat, line); pendingSpeak = line; }
             case "VOTE" -> g.submitVote(seat, autoPolicy.exileVote(g, me, rnd));
@@ -357,22 +492,33 @@ public class LiveGameService {
         } catch (Exception ignored) {}
     }
 
-    /** 托管/超时兜底：若当前行动者是可自爆的白狼王，随机带走一名存活的敌对（好人）目标。成功返回 true。 */
+    /**
+     * 托管/超时兜底：白天行动者若是可自爆的狼人，按概率发起自爆。
+     * 白狼王随机带走一名存活好人；普通狼人只自爆（不带人）。成功返回 true。
+     */
     private boolean submitAutoBlowUp(GameEngine g, int seat, Random rnd) {
         if (!g.canBlowUp(seat)) return false;
-        // 优先带走好人（避免误伤狼队友）；无可选好人时退回除自己外的任意存活玩家。
-        List<Integer> good = new ArrayList<>();
-        List<Integer> any = new ArrayList<>();
-        for (Player p : g.alive()) {
-            if (p.seat == seat) continue;
-            any.add(p.seat);
-            if (p.isGood()) good.add(p.seat);
+        Player me = g.bySeat(seat);
+        boolean white = me != null && me.role == com.werewolf.rules.Role.WHITE_WOLF_KING;
+        // 普通狼人自爆收益较低，给更小的概率，避免托管局频繁自爆打乱节奏
+        double chance = white ? AUTO_BLOWUP_CHANCE : AUTO_BLOWUP_CHANCE * 0.25;
+        if (rnd.nextDouble() >= chance) return false;
+        int target = 0;
+        if (white) {
+            // 优先带走好人（避免误伤狼队友）；无可选好人时退回除自己外的任意存活玩家。
+            List<Integer> good = new ArrayList<>();
+            List<Integer> any = new ArrayList<>();
+            for (Player p : g.alive()) {
+                if (p.seat == seat) continue;
+                any.add(p.seat);
+                if (p.isGood()) good.add(p.seat);
+            }
+            List<Integer> cand = !good.isEmpty() ? good : any;
+            if (cand.isEmpty()) return false; // 无合法目标：交由正常发言/投票流程处理
+            target = cand.get(rnd.nextInt(cand.size()));
         }
-        List<Integer> cand = !good.isEmpty() ? good : any;
-        if (cand.isEmpty()) return false; // 无合法目标：交由正常发言/投票流程处理
-        int target = cand.get(rnd.nextInt(cand.size()));
         try {
-            g.submitWhiteWolfBlowUp(seat, target);
+            g.submitWolfBlowUp(seat, target);
             return true;
         } catch (GameEngine.IllegalActionException e) {
             log.warn("托管自爆失败 seat={} target={}: {}", seat, target, e.getMessage());
@@ -380,7 +526,7 @@ public class LiveGameService {
         }
     }
 
-    /** 判断动作是否表达“白狼王自爆”意图（约定的文本标记）。 */
+    /** 判断动作是否表达“狼人自爆”意图（约定的文本标记）。 */
     public static boolean isBlowUpAction(GameAction a) {
         return a != null && a.text != null && a.text.trim().startsWith(BLOWUP_MARKER);
     }
@@ -447,13 +593,19 @@ public class LiveGameService {
     /** 把动作应用到引擎（真人/AI 共用）。返回 null=成功，否则错误信息。 */
     private String applyActionToEngine(GameEngine g, int seat, GameAction action) {
         try {
-            // 附加可选动作：白狼王白天自爆。优先于当前 kind 判定，用约定标记触发；
-            // 目标为自己或无合法目标时直接拒绝，避免 submitWhiteWolfBlowUp 抛异常。
+            // 附加可选动作：狼人白天自爆（白狼王带人 / 普通狼人不带人）。优先于当前 kind 判定，用约定标记触发。
             if (action != null && isBlowUpAction(action) && g.canBlowUp(seat)) {
-                if (action.target <= 0 || action.target == seat) return "自爆需要选择一个不等于自己的目标";
-                Player t = g.bySeat(action.target);
-                if (t == null || !t.alive) return "自爆目标无效";
-                g.submitWhiteWolfBlowUp(seat, action.target);
+                Player me = g.bySeat(seat);
+                boolean white = me != null && me.role == com.werewolf.rules.Role.WHITE_WOLF_KING;
+                int tgt = action.target;
+                if (white) {
+                    if (tgt <= 0 || tgt == seat) return "白狼王自爆需要选择一个不等于自己的目标";
+                    Player t = g.bySeat(tgt);
+                    if (t == null || !t.alive) return "自爆目标无效";
+                } else {
+                    tgt = 0;   // 普通狼人自爆不带人
+                }
+                g.submitWolfBlowUp(seat, tgt);
                 return null;
             }
             switch (g.currentActionKind()) {
@@ -464,8 +616,11 @@ public class LiveGameService {
                 case "CROW" -> g.submitCrow(action.target);
                 case "SILENCER" -> g.submitSilencer(action.target);
                 case "SHOOT" -> g.submitShoot(seat, action.target);
+                case "SHERIFF_TRANSFER" -> g.submitSheriffTransfer(action.target);
+                case "SHERIFF_ORDER" -> g.submitSheriffOrder(action.target);
                 case "LAST_WORDS" -> g.submitLastWords(seat, action.text);
                 case "SHERIFF_SIGNUP" -> g.submitSheriffSignup(seat, action.signup);
+                case "SHERIFF_WITHDRAW" -> g.submitSheriffWithdraw(seat, action.withdraw);
                 case "SHERIFF_VOTE" -> g.submitSheriffVote(seat, action.target);
                 case "SPEECH" -> g.submitSpeech(seat, action.text);
                 case "VOTE" -> g.submitVote(seat, action.target);
@@ -560,11 +715,13 @@ public class LiveGameService {
         if (lg == null) return null;
         Integer seat = lg.userToSeat.get(userId);
         int viewer = seat == null ? 0 : seat; // 0=观战
-        Map<String, Object> v = GameViewBuilder.build(lg.engine, lg.seats, viewer, lg.anonymous, lg.voiceMode, vprops, lg.showOf);
+        Map<String, Object> v = GameViewBuilder.build(lg.engine, lg.seats, viewer, lg.anonymous, lg.voiceMode, vprops, lg.showOf, lg.aiOnly);
         v.put("roomNo", lg.roomNo);
         // 倒计时隐私：只把当前行动者的截止时间推给本人，其他人不得感知他人思考时长
         int actor = lg.engine.currentActor();
         v.put("deadlineMs", viewer != 0 && viewer == actor ? lg.phaseDeadlineMs : 0);
+        v.put("spectator", viewer == 0);
+        v.put("aiOnly", lg.aiOnly);
         v.put("hostUserId", lg.hostUserId);
         return v;
     }
@@ -581,11 +738,12 @@ public class LiveGameService {
         for (Long uid : membership.membersOf(lg.roomId)) {
             Integer seat = lg.userToSeat.get(uid);
             int viewer = seat == null ? 0 : seat;
-            Map<String, Object> v = GameViewBuilder.build(lg.engine, lg.seats, viewer, lg.anonymous, lg.voiceMode, vprops, lg.showOf);
+            Map<String, Object> v = GameViewBuilder.build(lg.engine, lg.seats, viewer, lg.anonymous, lg.voiceMode, vprops, lg.showOf, lg.aiOnly);
             v.put("roomNo", lg.roomNo);
             // 倒计时隐私：仅行动者本人可见截止时间
             v.put("deadlineMs", viewer != 0 && viewer == actor ? lg.phaseDeadlineMs : 0);
             v.put("spectator", seat == null);
+            v.put("aiOnly", lg.aiOnly);
             v.put("hostUserId", lg.hostUserId);
             if (lg.engine.isGameOver()) v.put("gameId", lg.gameId);
             targets.add(uid);
@@ -594,6 +752,8 @@ public class LiveGameService {
         for (int i = 0; i < targets.size(); i++) {
             sendToUserAsync(targets.get(i), "game.state", snapshots.get(i));
         }
+        // 状态有变化即按房间节流落盘一份快照，供服务器重启后继续对局
+        try { persistence.saveAsync(lg); } catch (Exception e) { log.debug("快照保存失败 room={}: {}", lg.roomId, e.getMessage()); }
     }
 
     /** 异步推送：把 WebSocket 发送移出 lg 锁，慢客户端不再阻塞对局推进。 */
@@ -634,12 +794,20 @@ public class LiveGameService {
             String line = narratorLine(lg, ph);
             if (line != null) sb.append(line);
         }
+        // 退水环节与报名/发言同属 SHERIFF_ELECTION，阶段未变，需单独检测并只播一次
+        if (ph == GamePhase.SHERIFF_ELECTION && lg.engine.sheriffWithdrawActive() && !lg.narratedSheriffWithdraw) {
+            lg.narratedSheriffWithdraw = true;
+            sb.append("竞选发言结束，请上警的玩家依次决定是否退水，退水后不再参与投票。");
+        }
         String s = sb.toString().trim();
         return s.isEmpty() ? null : s;
     }
 
     private boolean isDayPhase(GamePhase ph) {
+        // 含「开枪 / 警徽移交 / 决定发言顺序」：警长夜里被刀时，天亮死讯要在这几个阶段前先播出来，
+        // 否则会拖到更晚的白天阶段，玩家先听到移交提示、后听到死讯，顺序颠倒。
         return ph == GamePhase.DAWN || ph == GamePhase.SHERIFF_ELECTION || ph == GamePhase.LAST_WORDS
+                || ph == GamePhase.SHOOT || ph == GamePhase.SHERIFF_TRANSFER || ph == GamePhase.SHERIFF_ORDER
                 || ph == GamePhase.DAY_SPEAK || ph == GamePhase.DAY_VOTE || ph == GamePhase.DAY_VOTE_TIEBREAK;
     }
 
@@ -753,6 +921,8 @@ public class LiveGameService {
             case DAY_VOTE -> "讨论结束，开始投票，请选出你要放逐的玩家。";
             case DAY_VOTE_TIEBREAK -> "出现平票，进入 PK 环节。";
             case LAST_WORDS -> null;   // 由 narrateIfNeeded 按每位遗言者单独播报
+            case SHERIFF_TRANSFER -> "警长出局，请警长决定警徽的去向。";
+            case SHERIFF_ORDER -> "请警长决定从警左还是警右开始发言。";
             case GAME_OVER -> "游戏结束，"
                     + (lg.engine.winner() == Faction.WOLF ? "狼人阵营" : "好人阵营") + "获得胜利！";
             default -> null;
@@ -788,10 +958,14 @@ public class LiveGameService {
         };
     }
 
-    /** 对局内打字聊天：广播给房间内所有成员（显示名遵循匿名规则）。 */
+    /** 对局内打字聊天：广播给房间内所有成员（显示名遵循匿名规则）。仅全真人局开放。 */
     public String chat(long roomId, long userId, String text) {
         LiveGame lg = active.get(roomId);
         if (lg == null) return "无进行中的对局";
+        // 房间聊天只在「全真人局」开放：只要有 AI/托管座位就关闭（避免真人靠聊天串通、也避免 AI 局里出现无意义的聊天面板）
+        if (lg.seats.values().stream().anyMatch(s -> s.bot)) {
+            return "本局有 AI 玩家参与，房间聊天已关闭（仅全真人局开放）";
+        }
         if (text == null || text.isBlank()) return "说点什么吧";
         String t = text.trim().replaceAll("[\\r\\n]+", " ");
         if (t.length() > 200) t = t.substring(0, 200);
@@ -802,6 +976,68 @@ public class LiveGameService {
             wsPush.send(uid, "game.chat", Map.of("room", roomId, "seat", dispSeat, "name", name, "text", t));
         }
         return null;
+    }
+
+    /**
+     * 夜晚狼队内部交流：只推给【存活的狼】，非狼既收不到消息、也不会出现在任何对局记录里。
+     * 仅夜晚开放（白天狼需要伪装闭眼好人）。
+     */
+    public String wolfChat(long roomId, long userId, String text) {
+        LiveGame lg = active.get(roomId);
+        if (lg == null) return "无进行中的对局";
+        Integer seat = lg.userToSeat.get(userId);
+        if (seat == null) return "观战者不能参与狼队交流";
+        com.werewolf.rules.Player me = lg.engine.bySeat(seat);
+        if (me == null || !me.alive || !me.isWolf()) return "只有存活的狼人可以使用狼队频道";
+        if (!lg.engine.phase().name().startsWith("NIGHT")) return "狼队频道只在夜晚开放";
+        if (text == null || text.isBlank()) return "说点什么吧";
+        String t = text.trim().replaceAll("[\\r\\n]+", " ");
+        if (t.length() > 200) t = t.substring(0, 200);
+        int dispSeat = lg.show(seat);
+        String name = displayName(lg, seat);
+        // 只发给存活的狼（含发送者本人）；不写任何事件记录，因此对局记录里不会出现
+        for (SeatInfo si : lg.seats.values()) {
+            if (si.bot || si.userId <= 0) continue;
+            com.werewolf.rules.Player p = lg.engine.bySeat(si.seat);
+            if (p == null || !p.alive || !p.isWolf()) continue;
+            wsPush.send(si.userId, "game.wolfchat", Map.of("room", roomId, "seat", dispSeat, "name", name, "text", t));
+        }
+        return null;
+    }
+
+    /**
+     * AI 总结本局的【对话内容】：只归纳"谁说了什么"，不分析局面、不推断身份。
+     * 供对局记录面板的「AI 总结」按钮使用。
+     */
+    public String summarizeFeed(long roomId) {
+        LiveGame lg = active.get(roomId);
+        if (lg == null) return "无进行中的对局";
+        List<String> lines = new ArrayList<>();
+        for (com.werewolf.rules.GameEvent e : lg.engine.events()) {
+            if (e.detail() == null || e.detail().isBlank()) continue;
+            if (com.werewolf.rules.GameEvent.SPEECH.equals(e.type())) {
+                lines.add("第" + e.day() + "天 " + lg.show(e.actorSeat()) + "号发言：" + e.detail());
+            } else if (com.werewolf.rules.GameEvent.LAST_WORDS.equals(e.type())) {
+                lines.add("第" + e.day() + "天 " + lg.show(e.actorSeat()) + "号遗言：" + e.detail());
+            }
+        }
+        if (lines.isEmpty()) return "本局还没有人发言。";
+        int from = Math.max(0, lines.size() - 60);          // 只带最近 60 条，避免上下文过长
+        String body = String.join("\n", lines.subList(from, lines.size()));
+        String prompt = "下面是一局狼人杀的【公开发言与遗言】原文。请做一份「对话内容摘要」：\n"
+                + "1) 只梳理【谁说了什么】：每位玩家发言的核心主张、点名了谁、前后态度有无变化；\n"
+                + "2) 严禁分析局面、严禁推断谁是狼、严禁给出胜负判断或投票建议；\n"
+                + "3) 用简体中文，按座位分段，每人一句话；不要 markdown 标题、不要表格。\n\n"
+                + body;
+        try {
+            String out = aiService.chat(List.of(
+                    new com.werewolf.ai.AiProvider.Message("system", "你是会议纪要员：只客观归纳发言内容，不做任何推理、判断或建议。"),
+                    new com.werewolf.ai.AiProvider.Message("user", prompt)));
+            return out == null ? "" : out.trim();
+        } catch (Exception e) {
+            log.warn("AI 总结发言失败：{}", e.toString());
+            return "AI 总结失败：" + e.getMessage();
+        }
     }
 
     private void sendToUser(long userId, String type, Map<String, ?> payload) {
@@ -860,6 +1096,8 @@ public class LiveGameService {
         }
         // 自然结束也要复位房间，避免卡在 PLAYING 无法退出/重开
         retire(lg);
+        // 全 AI 观战房：自然结束后延时续开下一局（有人观看时），形成持续的 AI 表演赛
+        scheduleAiShowRestart(lg);
     }
 
     /** 结束并清理：从活跃对局移除、取消定时器与进行中的 AI 调用、把房间状态复位为等待中。 */
@@ -870,6 +1108,8 @@ public class LiveGameService {
         java.util.concurrent.Future<?> f = lg.aiFuture;
         if (f != null) { try { f.cancel(true); } catch (Exception ignored) {} }
         active.remove(lg.roomId);
+        // 对局已结束：清除快照，避免重启后被当作未完成对局恢复
+        try { persistence.delete(lg.roomId); } catch (Exception ignored) {}
         // 释放该房间在语音发声锁里的条目，避免长期运行下 roomLocks 无界增长（内存泄漏）
         try { director.removeRoom(lg.roomId); } catch (Exception ignored) {}
         try {
@@ -1013,9 +1253,13 @@ public class LiveGameService {
     private int durationFor(String kind) {
         return switch (kind) {
             case "SPEECH", "PK_SPEECH" -> 120;
-            case "LAST_WORDS" -> 60;
+            // 遗言：给足时间交代信息（与白天发言同为 120 秒）
+            case "LAST_WORDS" -> 120;
             case "SHERIFF_SIGNUP" -> 15;
+            case "SHERIFF_WITHDRAW" -> 15;   // 退水表态：给候选人留出选择时间
             case "VOTE", "PK_VOTE", "SHERIFF_VOTE" -> 30;
+            case "SHERIFF_TRANSFER" -> 30;   // 警徽移交：给警长留出选择时间
+            case "SHERIFF_ORDER" -> 20;      // 决定发言顺序：给警长留出选择时间
             default -> 30; // 夜晚行动/开枪
         };
     }

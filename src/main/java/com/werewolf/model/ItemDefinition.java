@@ -2,7 +2,7 @@ package com.werewolf.model;
 
 import jakarta.persistence.*;
 
-/** 商品/道具定义。type: AVATAR/FRAME/TITLE/NICKCOLOR/FUNCTION。 */
+/** 商品/道具定义。type: AVATAR/FRAME/TITLE/NICKCOLOR/FUNCTION/SKIN3D。 */
 @Entity
 @Table(name = "item_definition")
 public class ItemDefinition {

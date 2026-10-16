@@ -90,7 +90,6 @@ deal-role
 deal-text
 dl-list
 dl-updated
-duo-toggle
 form-login
 form-register
 forum-back

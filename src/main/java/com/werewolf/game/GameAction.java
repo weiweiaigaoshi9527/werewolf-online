@@ -7,6 +7,7 @@ public class GameAction {
     public int poisonTarget;  // 女巫毒药目标
     public String text;       // 发言/遗言文本
     public boolean signup;    // 警长报名与否
+    public boolean withdraw;  // 警长竞选退水与否（true=退出竞选）
 
     public GameAction() {}
     public GameAction(int target) { this.target = target; }

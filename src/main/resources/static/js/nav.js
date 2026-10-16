@@ -215,7 +215,8 @@
       const rt = e.target.closest && e.target.closest('[data-route]');
       if (rt) { Nav.go(rt.dataset.route); return; }
       const layerBg = e.target.closest && e.target.closest('.layer');
-      if (layerBg && e.target === layerBg) Nav.close(layerBg.id);      // 点遮罩关闭
+      // 点遮罩关闭；但带 data-no-backdrop 的层不关（避免误触遮罩直接关闭弹窗）
+      if (layerBg && e.target === layerBg && !layerBg.hasAttribute('data-no-backdrop')) Nav.close(layerBg.id);
     });
 
     /* 6) Esc 关闭最上层覆盖层 */

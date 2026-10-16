@@ -10,5 +10,5 @@ public interface AiProvider {
     String chat(List<Message> messages, AiOptions opts) throws Exception;
 
     record AiOptions(String baseUrl, String apiKey, String model, double temperature,
-                     int maxTokens, int timeoutSeconds, int maxRetries) {}
+                     int maxTokens, int timeoutSeconds, int maxRetries, String proxyUrl) {}
 }

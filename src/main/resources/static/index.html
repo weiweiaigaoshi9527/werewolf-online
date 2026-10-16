@@ -32,10 +32,9 @@ b!DOCTYPE html>
       <ul class="auth-brand-list">
         <li><i>🎙</i><span>语音同传 · AI 与真人无从分辨</span></li>
         <li><i>🧩</i><span>自定义板子 · 十二神职自由配比</span></li>
-        <li><i>👫</i><span>双人组队 · 与好友同阵营开黑</span></li>
         <li><i>📱</i><span>桌面 / 手机 / 网页 三端互通</span></li>
       </ul>
-      <div class="auth-lang"><select id="lang-select-auth" class="select select-ghost" title="语言 / Language"></select></div>
+      <div class="auth-lang"><div class="lang-pick" data-lang-picker data-lang-variant="auth"></div></div>
     </section>
 
     <section class="auth-formwrap">
@@ -84,10 +83,6 @@ b!DOCTYPE html>
             <span class="field-label">昵称</span>
             <input type="text" id="reg-nickname" class="input" placeholder="昵称（留空则同用户名）" data-i18n-ph="ph_reg_nick" maxlength="16">
           </label>
-          <label class="field">
-            <span class="field-label">QQ 号</span>
-            <input type="text" id="reg-qq" class="input" inputmode="numeric" placeholder="QQ 号（选填，用于同步 QQ 头像）" maxlength="11">
-          </label>
           <button type="submit" class="btn btn-primary btn-block">缔结契约</button>
         </form>
 
@@ -114,6 +109,7 @@ b!DOCTYPE html>
       <button class="icon-btn" id="btn-sfx" title="音效开关" aria-label="音效开关">🔊</button>
       <button class="icon-btn" id="btn-bgm" title="背景音乐（本地 MP3）" aria-label="背景音乐">🎵</button>
       <button class="icon-btn" id="btn-theme" title="夜/白模式 · 自定义背景" aria-label="主题">🌙</button>
+      <div class="lang-pick" data-lang-picker data-lang-variant="topbar"></div>
 
       <div class="more-wrap">
         <button class="icon-btn" id="btn-more" data-popover="pop-more" title="更多" aria-label="更多">⋯</button>
@@ -121,7 +117,6 @@ b!DOCTYPE html>
           <div class="pop-head">
             <span class="avatar avatar-sm" id="pop-avatar">🧑</span>
             <span class="pop-id"><b id="profile-mini">—</b></span>
-            <select id="lang-select" class="select select-sm" title="语言 / Language"></select>
           </div>
           <a class="pop-item hidden" id="btn-admin" href="/admin" target="_blank" rel="noopener"><i>🛡️</i>管理员面板</a>
           <button class="pop-item" id="btn-qq-group"><i>🐧</i>QQ 群 1036858989<span class="pop-tag">复制</span></button>
@@ -225,6 +220,21 @@ b!DOCTYPE html>
                   <div class="tile-name">观战加入</div>
                   <div class="tile-hint">进入进行中的对局旁观</div>
                 </div>
+                <div class="tile" id="btn-ai-show" data-feat="aiShow">
+                  <div class="tile-icon">🎬</div>
+                  <div class="tile-name" data-i18n="tile_aishow">全 AI 队局</div>
+                  <div class="tile-hint" data-i18n="tile_aishow_sub">全 AI 自动对战，真人观战</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" id="card-ai-show" data-feat="aiShow">
+              <div class="card-head">
+                <h2 class="card-title">全 AI 观战厅</h2>
+                <span class="card-meta">AI 表演赛 · 点开即看</span>
+              </div>
+              <div class="feed-list" id="ai-show-list">
+                <div class="feed-item">暂无进行中的全 AI 队局，点击上方「全 AI 队局」开一场。</div>
               </div>
             </div>
 
@@ -255,6 +265,11 @@ b!DOCTYPE html>
                   <div class="tile-icon">🎫</div>
                   <div class="tile-name">工单</div>
                   <div class="tile-hint">问题反馈 / 进度</div>
+                </div>
+                <div class="tile" id="btn-open-support">
+                  <div class="tile-icon">💬</div>
+                  <div class="tile-name">在线客服</div>
+                  <div class="tile-hint">在线答疑 · 可转人工</div>
                 </div>
                 <div class="tile" id="btn-news" data-feat="news">
                   <div class="tile-icon">📰</div>
@@ -308,7 +323,7 @@ b!DOCTYPE html>
             <div class="card">
               <div class="card-head">
                 <h2 class="card-title">座位</h2>
-                <span class="card-meta">👑 房主 · 🤖 AI · 👫 已组队 · 🟢 已准备</span>
+                <span class="card-meta">👑 房主 · 🤖 AI · 🟢 已准备</span>
               </div>
               <div class="seat-grid" id="seat-grid"></div>
             </div>
@@ -344,7 +359,6 @@ b!DOCTYPE html>
                 <label class="switch-row"><input type="checkbox" id="anon-toggle"><span class="sw-main"><b>🕶 匿名伪装</b><i>全员头像/昵称固定，AI 与真人无从分辨</i></span></label>
                 <label class="switch-row"><input type="checkbox" id="hunt-toggle"><span class="sw-main"><b>⚔ 数量规则（屠城向）</b><i>默认屠边：神/民任一灭尽即狼胜；勾选后改为狼数 ≥ 好人数才狼胜</i></span></label>
                 <label class="switch-row" data-feat="items"><input type="checkbox" id="item-toggle" checked><span class="sw-main"><b>🎒 功能道具赛</b><i>开启后玩家携带的功能道具本局生效；关闭为纯逻辑局</i></span></label>
-                <label class="switch-row" data-feat="duo"><input type="checkbox" id="duo-toggle"><span class="sw-main"><b>👫 双人组队模式</b><i>开启后可向座位上的玩家发起组队，同队成员保证同阵营</i></span></label>
               </div>
               <button class="btn btn-primary btn-sm btn-block" id="btn-save-mode">应用模式</button>
             </div>
@@ -359,6 +373,8 @@ b!DOCTYPE html>
         <div class="action-dock">
           <button class="btn btn-ghost" id="btn-leave-room" data-i18n="room_leave">离开房间</button>
           <span class="spacer"></span>
+          <button class="btn btn-primary hidden" id="btn-ai-restart">▶ 续开一局</button>
+          <button class="btn btn-ghost hidden" id="btn-ai-stop">⏹ 停止对战</button>
           <button class="btn btn-primary" id="btn-ready" data-i18n="room_ready">准备</button>
           <button class="btn btn-primary hidden" id="btn-start" data-i18n="room_start">开始游戏</button>
         </div>
@@ -375,6 +391,7 @@ b!DOCTYPE html>
           <div class="gt-day" id="game-day">第 0 天</div>
           <div class="game-timer" id="game-timer"></div>
           <div class="gt-ctrl">
+            <button class="btn btn-sm btn-ghost" id="btn-toggle-3d" title="在 2D 座位圈与 3D 圆桌之间切换">🎥 3D 视角</button>
             <button class="btn btn-sm hidden danger" id="btn-end-game" title="终止所有 AI 调用并结束本局" data-i18n="game_end">⏹ 强制结束</button>
             <button class="btn btn-sm btn-primary hidden" id="btn-return-room" title="返回房间，等待下一局" data-i18n="game_return">↩ 返回房间</button>
             <button class="btn btn-sm btn-ghost" id="btn-leave-game" title="退出房间" data-i18n="game_leave">🚪 退出房间</button>
@@ -383,6 +400,19 @@ b!DOCTYPE html>
 
         <div class="game-body">
           <div class="game-main">
+            <!-- 3D 视角：与 2D 座位圈共用同一份对局状态，随时切换 -->
+            <div class="stage-3d hidden" id="stage-3d">
+              <canvas id="canvas-3d"></canvas>
+              <div class="stage3d-bar">
+                <span class="stage3d-tip stage3d-tip-mouse">🖱 拖动旋转 · 滚轮缩放 · 拉近自动聚焦发言者</span>
+                <span class="stage3d-tip stage3d-tip-touch">👆 单指拖动旋转 · 双指缩放 · 拉近自动聚焦发言者</span>
+                <span class="stage3d-acts">
+                  <button class="btn btn-sm btn-ghost" id="btn-3d-wide">全景</button>
+                  <button class="btn btn-sm btn-ghost" id="btn-3d-near">近景</button>
+                  <button class="btn btn-sm btn-ghost" id="btn-3d-reset">↺ 复位视角</button>
+                </span>
+              </div>
+            </div>
             <div class="seat-ring" id="game-seats"></div>
             <div class="voice-caption hidden" id="voice-caption"></div>
             <div class="game-action" id="game-action"></div>
@@ -395,6 +425,7 @@ b!DOCTYPE html>
                 <button class="dock-tab" data-panel="#dock-marker">📝 标记</button>
                 <button class="dock-tab" data-panel="#dock-feed" data-i18n="panel_feed">对局记录</button>
                 <button class="dock-tab" data-panel="#dock-chat" data-i18n="panel_chat">房间聊天</button>
+                <button class="dock-tab hidden" data-panel="#dock-wolf" id="tab-wolf">🐺 狼队频道</button>
               </div>
               <div class="dock-body">
                 <section class="dock-panel active" id="dock-role">
@@ -419,6 +450,14 @@ b!DOCTYPE html>
                   <div class="chat-input">
                     <input type="text" id="gc-input" class="input" placeholder="说点什么…" maxlength="200">
                     <button class="btn btn-sm btn-primary" id="gc-send">发送</button>
+                  </div>
+                </section>
+                <!-- 狼队夜间频道：仅存活的狼可见，其他人既看不到面板也收不到消息，且不写入对局记录 -->
+                <section class="dock-panel dock-chat hidden" id="dock-wolf">
+                  <div class="game-chat" id="wolf-chat" data-i18n-skip></div>
+                  <div class="chat-input">
+                    <input type="text" id="wc-input" class="input" placeholder="狼队内部消息（队友可见）…" maxlength="200">
+                    <button class="btn btn-sm btn-primary" id="wc-send">发送</button>
                   </div>
                 </section>
               </div>
@@ -759,6 +798,23 @@ b!DOCTYPE html>
   </div>
 </div>
 
+<!-- 全 AI 队局（观战） -->
+<div id="modal-ai-show" class="layer hidden" aria-modal="true">
+  <div class="sheet">
+    <div class="sheet-title">🎬 全 AI 队局</div>
+    <div class="sheet-body">
+      <p class="hint">整局由 AI 自动对战，你和其他真人都只能观战。一局结束后会自动续开下一局。</p>
+      <label class="field-label" for="ai-show-board">选择板子</label>
+      <select id="ai-show-board" class="input"></select>
+      <div id="ai-show-err" class="auth-error hidden" role="alert"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn btn-ghost" id="btn-ai-show-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-ai-show-confirm">开一场</button>
+    </div>
+  </div>
+</div>
+
 <!-- 结算 -->
 <div id="modal-settle" class="layer hidden" aria-modal="true">
   <div class="sheet sheet-wide settle-card">
@@ -786,6 +842,22 @@ b!DOCTYPE html>
   <div class="sheet">
     <div class="sheet-body"><div id="fp-body"></div></div>
     <div class="sheet-foot"><button class="btn btn-ghost" id="btn-fp-close">关闭</button></div>
+  </div>
+</div>
+
+<!-- 在线客服（AI 客服 + 可转人工） -->
+<div id="modal-support" class="layer hidden" aria-modal="true">
+  <div class="sheet sheet-support">
+    <div class="sheet-title">💬 在线客服 <span class="sup-badge" id="sup-badge">在线</span></div>
+    <div class="sup-msgs" id="sup-msgs"></div>
+    <div class="sup-input">
+      <input type="text" id="sup-input" class="input" placeholder="描述你遇到的问题…" maxlength="500">
+      <button class="btn btn-primary" id="sup-send">发送</button>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn btn-sm btn-ghost" id="sup-human">🙋 转人工客服</button>
+      <button class="btn btn-sm" id="sup-close">关闭</button>
+    </div>
   </div>
 </div>
 
@@ -875,24 +947,10 @@ b!DOCTYPE html>
 <script src="/js/nav.js"></script>
 <script src="/js/appearance.js"></script>
 <script src="/js/voice.js"></script>
+<script src="/js/lib/three.min.js"></script>
+<script src="/js/scene3d.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/extras.js"></script>
 <script src="/js/ux.js"></script>
-
-    <!-- 强制补填 QQ 号弹窗（无取消按钮）：填完奖励 1000 金币 -->
-    <div id="modal-qq" class="layer hidden" aria-modal="true">
-      <div class="sheet">
-        <div class="sheet-title">🐧 绑定 QQ 号</div>
-        <div class="sheet-body">
-          <p class="hint">为了方便联系与展示 QQ 头像，请填写你的 QQ 号。<br>
-            <b style="color:var(--accent)">首次填写立得 1000 金币奖励！</b>头像将自动同步为你的 QQ 头像。</p>
-          <input type="text" id="qq-input" class="input" inputmode="numeric" placeholder="请输入 5-11 位 QQ 号" maxlength="11">
-          <p id="qq-err" class="auth-error hidden" role="alert"></p>
-        </div>
-        <div class="sheet-foot">
-          <button class="btn btn-primary btn-block" id="btn-qq-save">🐧 绑定并领取 1000 金币</button>
-        </div>
-      </div>
-    </div>
 </body>
 </html>

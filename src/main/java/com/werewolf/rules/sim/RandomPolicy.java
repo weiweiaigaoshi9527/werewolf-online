@@ -71,6 +71,12 @@ public class RandomPolicy implements PlayerPolicy {
     }
 
     @Override
+    public boolean sheriffWithdraw(GameEngine g, Player me, Random rnd) {
+        // 随机策略：约 15% 概率退水（退水后不再参与投票）
+        return rnd.nextInt(100) < 15;
+    }
+
+    @Override
     public int sheriffVote(GameEngine g, Player me, List<Integer> candidates, Random rnd) {
         if (candidates.isEmpty() || rnd.nextInt(8) == 0) return 0;
         return candidates.get(rnd.nextInt(candidates.size()));

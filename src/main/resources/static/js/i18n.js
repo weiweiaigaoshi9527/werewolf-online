@@ -12,6 +12,7 @@ window.I18N = {
     ph_reg_username: '用户名（3-16 位字母/数字/下划线）', ph_reg_password: '密码（至少 6 位）', ph_reg_nick: '昵称（留空则同用户名）',
     lobby_start: '开始一局', tile_create: '创建房间', tile_create_sub: '成为房主，邀请好友',
     tile_join: '房间号加入', tile_join_sub: '输入 6 位房号', tile_spectate: '观战加入', tile_spectate_sub: '进入进行中的对局旁观',
+    tile_aishow: '全 AI 队局', tile_aishow_sub: '全 AI 自动对战，真人观战',
     room_leave: '离开房间', room_invite_friend: '👥 邀请好友', room_invite_link: '🔗 外链邀请', room_add_ai: '🤖 补位 AI',
     room_ready: '准备', room_unready: '取消准备', room_start: '开始游戏',
     panel_myrole: '我的身份', panel_feed: '对局记录', panel_chat: '房间聊天', panel_board: '板子配置',
@@ -25,6 +26,7 @@ window.I18N = {
     ph_reg_username: 'Username (3-16 letters/digits/_)', ph_reg_password: 'Password (min 6 chars)', ph_reg_nick: 'Nickname (blank = username)',
     lobby_start: 'Start a game', tile_create: 'Create room', tile_create_sub: 'Host and invite friends',
     tile_join: 'Join by code', tile_join_sub: 'Enter 6-digit room code', tile_spectate: 'Spectate', tile_spectate_sub: 'Watch a live game',
+    tile_aishow: 'All-AI match', tile_aishow_sub: 'AI vs AI, you watch',
     room_leave: 'Leave room', room_invite_friend: '👥 Invite friends', room_invite_link: '🔗 Copy link', room_add_ai: '🤖 Add AI',
     room_ready: 'Ready', room_unready: 'Cancel ready', room_start: 'Start game',
     panel_myrole: 'My role', panel_feed: 'Game log', panel_chat: 'Room chat', panel_board: 'Board setup',
@@ -38,6 +40,7 @@ window.I18N = {
     ph_reg_username: 'ユーザー名（3-16 英数字_）', ph_reg_password: 'パスワード（6 文字以上）', ph_reg_nick: 'ニックネーム（空ならユーザー名）',
     lobby_start: 'ゲームを始める', tile_create: 'ルーム作成', tile_create_sub: 'ホストになって友達を招待',
     tile_join: 'コードで参加', tile_join_sub: '6 桁のルームコード', tile_spectate: '観戦', tile_spectate_sub: '進行中の対局を観戦',
+    tile_aishow: '全 AI 対局', tile_aishow_sub: 'AI 同士の対戦を観戦',
     room_leave: 'ルームを出る', room_invite_friend: '👥 友達を招待', room_invite_link: '🔗 リンクをコピー', room_add_ai: '🤖 AI を追加',
     room_ready: '準備完了', room_unready: '準備解除', room_start: 'ゲーム開始',
     panel_myrole: '自分の役職', panel_feed: '対局記録', panel_chat: 'ルームチャット', panel_board: '役職構成',
@@ -51,6 +54,7 @@ window.I18N = {
     ph_reg_username: '아이디 (3-16 영문/숫자/_)', ph_reg_password: '비밀번호 (6자 이상)', ph_reg_nick: '닉네임 (비우면 아이디)',
     lobby_start: '게임 시작', tile_create: '방 만들기', tile_create_sub: '방장이 되어 친구 초대',
     tile_join: '코드로 입장', tile_join_sub: '6자리 방 코드', tile_spectate: '관전', tile_spectate_sub: '진행 중인 게임 관전',
+    tile_aishow: '전체 AI 대국', tile_aishow_sub: 'AI끼리 대전, 관전 가능',
     room_leave: '나가기', room_invite_friend: '👥 친구 초대', room_invite_link: '🔗 링크 복사', room_add_ai: '🤖 AI 추가',
     room_ready: '준비', room_unready: '준비 취소', room_start: '게임 시작',
     panel_myrole: '내 역할', panel_feed: '게임 기록', panel_chat: '방 채팅', panel_board: '직업 구성',
@@ -64,6 +68,7 @@ window.I18N = {
     ph_reg_username: 'Логин (3-16 букв/цифр/_)', ph_reg_password: 'Пароль (мин. 6)', ph_reg_nick: 'Ник (пусто = логин)',
     lobby_start: 'Начать игру', tile_create: 'Создать комнату', tile_create_sub: 'Стать ведущим, позвать друзей',
     tile_join: 'Войти по коду', tile_join_sub: '6-значный код', tile_spectate: 'Смотреть', tile_spectate_sub: 'Наблюдать за игрой',
+    tile_aishow: 'Матч ИИ', tile_aishow_sub: 'ИИ против ИИ — вы смотрите',
     room_leave: 'Покинуть', room_invite_friend: '👥 Позвать друзей', room_invite_link: '🔗 Ссылка', room_add_ai: '🤖 Добавить ИИ',
     room_ready: 'Готов', room_unready: 'Отменить', room_start: 'Начать игру',
     panel_myrole: 'Моя роль', panel_feed: 'Лог игры', panel_chat: 'Чат комнаты', panel_board: 'Состав ролей',
@@ -420,7 +425,72 @@ window.I18N_PATTERNS = {
   ],
 };
 
+/* ===== 增量词典：新功能文案 =====
+   既有 I18N_TEXT 很大，这里单独维护并合并进去，避免误改老词条。
+   只收录"界面外壳"文案；对局内容（身份名、AI 发言、旁白）始终中文，不在此列。 */
+window.I18N_TEXT_EXTRA = {
+  en: {
+    '发送': 'Send', '关闭': 'Close', '复制': 'Copy', '放弃/弃票': 'Pass',
+    '绑定': 'Bind', '绑定中…': 'Binding…', '以后再说': 'Later',
+    '在线客服': 'Live support', '在线答疑 · 可转人工': 'Ask anytime · human handoff',
+    '转人工客服': 'Transfer to a human', '人工客服': 'Human agent', '在线': 'Online',
+    '正在转接人工…': 'Connecting to a human…', '描述你遇到的问题…': 'Describe your issue…',
+    '狼队频道': 'Wolf channel', '狼队内部消息（队友可见）…': 'Wolf-only message…',
+    'AI 总结': 'AI summary', 'AI 对话总结': 'AI chat summary',
+    '正在归纳本局发言…': 'Summarizing this game…', '生成失败': 'Failed',
+    '本局有 AI 参与，聊天已关闭': 'Chat is off — AI is in this game',
+  },
+  ja: {
+    '发送': '送信', '关闭': '閉じる', '复制': 'コピー', '放弃/弃票': '棄権',
+    '绑定': '連携', '绑定中…': '連携中…', '以后再说': '後で',
+    '在线客服': 'オンラインサポート', '在线答疑 · 可转人工': 'いつでも質問・有人対応可',
+    '转人工客服': '有人対応へ', '人工客服': '有人オペレーター', '在线': 'オンライン',
+    '正在转接人工…': '有人対応に接続中…', '描述你遇到的问题…': '問題を入力…',
+    '狼队频道': '狼チームチャンネル', '狼队内部消息（队友可见）…': '狼チーム専用メッセージ…',
+    'AI 总结': 'AI 要約', 'AI 对话总结': 'AI 会話要約',
+    '正在归纳本局发言…': '発言を要約中…', '生成失败': '生成失敗',
+    '本局有 AI 参与，聊天已关闭': 'AI 参加のためチャットは無効です',
+  },
+  ko: {
+    '发送': '보내기', '关闭': '닫기', '复制': '복사', '放弃/弃票': '기권',
+    '绑定': '연동', '绑定中…': '연동 중…', '以后再说': '나중에',
+    '在线客服': '온라인 상담', '在线答疑 · 可转人工': '언제든 질문 · 상담원 연결',
+    '转人工客服': '상담원 연결', '人工客服': '상담원', '在线': '온라인',
+    '正在转接人工…': '상담원 연결 중…', '描述你遇到的问题…': '문제를 입력하세요…',
+    '狼队频道': '늑대 팀 채널', '狼队内部消息（队友可见）…': '늑대 전용 메시지…',
+    'AI 总结': 'AI 요약', 'AI 对话总结': 'AI 대화 요약',
+    '正在归纳本局发言…': '발언 요약 중…', '生成失败': '생성 실패',
+    '本局有 AI 参与，聊天已关闭': 'AI 참여로 채팅이 꺼졌습니다',
+  },
+  ru: {
+    '发送': 'Отправить', '关闭': 'Закрыть', '复制': 'Копировать', '放弃/弃票': 'Пропустить',
+    '绑定': 'Привязать', '绑定中…': 'Привязка…', '以后再说': 'Позже',
+    '在线客服': 'Онлайн-поддержка', '在线答疑 · 可转人工': 'Вопросы · передача оператору',
+    '转人工客服': 'Передать оператору', '人工客服': 'Оператор', '在线': 'Онлайн',
+    '正在转接人工…': 'Подключение к оператору…', '描述你遇到的问题…': 'Опишите проблему…',
+    '狼队频道': 'Канал волков', '狼队内部消息（队友可见）…': 'Сообщение для волков…',
+    'AI 总结': 'AI-сводка', 'AI 对话总结': 'AI-сводка диалога',
+    '正在归纳本局发言…': 'Сводка выступлений…', '生成失败': 'Ошибка',
+    '本局有 AI 参与，聊天已关闭': 'Чат отключён — в игре есть ИИ',
+  },
+};
+(function mergeExtra() {
+  const extra = window.I18N_TEXT_EXTRA || {};
+  Object.keys(extra).forEach((l) => {
+    if (!window.I18N_TEXT[l]) window.I18N_TEXT[l] = {};
+    Object.assign(window.I18N_TEXT[l], extra[l]);
+  });
+})();
+
 window.LANGS = [['zh', '中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어'], ['ru', 'Русский']];
+/* 语言元数据：[代码, 母语名, 英文名]。不放国旗 emoji（Windows 不渲染区域指示符，会显示成 "CN" 之类的字母）。 */
+window.LANG_META = [
+  ['zh', '中文', 'Chinese'],
+  ['en', 'English', 'English'],
+  ['ja', '日本語', 'Japanese'],
+  ['ko', '한국어', 'Korean'],
+  ['ru', 'Русский', 'Russian'],
+];
 window.getLang = () => localStorage.getItem('ww_lang') || 'zh';
 window.t = (key) => { const l = window.getLang(); return (window.I18N[l] && window.I18N[l][key]) || window.I18N.zh[key] || key; };
 
@@ -550,12 +620,82 @@ window.t = (key) => { const l = window.getLang(); return (window.I18N[l] && wind
     localStorage.setItem('ww_lang', l);
     window.applyI18n();
     translateAll();
+    refreshLangPickers();
+    closeAllLangMenus();
     document.dispatchEvent(new CustomEvent('ww:lang', { detail: l }));
   };
+
+  /* ---------------- 语言选择器（统一组件） ----------------
+     两种形态：auth（登录页品牌区）/ topbar（顶栏图标按钮）。
+     交互自带（不依赖 nav.js 的 data-popover 绑定），因此动态插入也能正常工作。
+     菜单整体标记 data-i18n-skip，避免语言名被自动翻译引擎改写。 */
+  function mountLangPickers() {
+    const meta = window.LANG_META || [];
+    document.querySelectorAll('[data-lang-picker]').forEach((host) => {
+      if (host.dataset.ready === '1') return;
+      host.dataset.ready = '1';
+      host.setAttribute('data-i18n-skip', '');
+      if (host.dataset.langVariant) host.classList.add('lang-pick--' + host.dataset.langVariant);
+      host.innerHTML =
+        '<button class="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" title="语言 / Language">' +
+          '<span class="lang-globe">🌐</span><span class="lang-cur"></span><span class="lang-caret">▾</span>' +
+        '</button>' +
+        '<div class="lang-menu" role="listbox" hidden>' +
+          '<div class="lang-menu-head">语言 / Language</div>' +
+          meta.map((m) =>
+            '<button class="lang-opt" type="button" role="option" data-lang="' + m[0] + '">' +
+              '<span class="lang-native">' + m[1] + '</span>' +
+              '<span class="lang-en">' + m[2] + '</span>' +
+              '<span class="lang-tick">✓</span>' +
+            '</button>').join('') +
+        '</div>';
+      const btn = host.querySelector('.lang-btn');
+      const menu = host.querySelector('.lang-menu');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = menu.hidden;
+        closeAllLangMenus();
+        menu.hidden = !willOpen;
+        btn.setAttribute('aria-expanded', String(willOpen));
+      });
+      menu.addEventListener('click', (e) => e.stopPropagation());
+      host.querySelectorAll('.lang-opt').forEach((opt) => {
+        opt.addEventListener('click', () => { window.setLang(opt.dataset.lang); });
+      });
+    });
+    refreshLangPickers();
+  }
+
+  function closeAllLangMenus() {
+    document.querySelectorAll('.lang-menu').forEach((m) => { m.hidden = true; });
+    document.querySelectorAll('.lang-btn').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
+
+  /** 同步所有选择器的“当前语言”显示与选中态。 */
+  function refreshLangPickers() {
+    const cur = window.getLang();
+    const list = window.LANG_META || [];
+    const hit = list.find((m) => m[0] === cur) || list[0];
+    document.querySelectorAll('[data-lang-picker]').forEach((host) => {
+      const label = host.querySelector('.lang-cur');
+      if (label && hit) label.textContent = hit[1];
+      host.querySelectorAll('.lang-opt').forEach((opt) => {
+        const on = opt.dataset.lang === cur;
+        opt.classList.toggle('active', on);
+        opt.setAttribute('aria-selected', String(on));
+      });
+    });
+  }
+
+  window.mountLangPickers = mountLangPickers;
+  window.refreshLangPickers = refreshLangPickers;
+  document.addEventListener('click', closeAllLangMenus);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllLangMenus(); });
 
   // 监听动态插入/改写的界面文字（对局内容不在词典里，因此不会被改动）
   function observe() {
     if (!document.body) return;
+    mountLangPickers();
     new MutationObserver(() => translateAll())
       .observe(document.body, { childList: true, subtree: true, characterData: true });
     translateAll();

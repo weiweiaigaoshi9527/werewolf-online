@@ -45,6 +45,8 @@
   .err { color: #e07a86; font-size: 13px; min-height: 18px; margin: 6px 0; }
   .hint { color: var(--text-dim); font-size: 12px; margin: 6px 0; }
   .row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  /* 一键清理里的数字输入：窄一些，且不受 .field 的 flex:1 / min-width:220px 影响 */
+  .field input.cl-num { flex: 0 0 auto; min-width: 0; width: 72px; text-align: center; }
   /* ===== 后台 UI/动画优化 ===== */
   body { background: radial-gradient(1200px 800px at 15% -5%, #16203c 0%, transparent 60%), var(--bg-deep, #090d18); }
   .adm-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; box-shadow: 0 6px 22px rgba(0,0,0,.28); }
@@ -115,7 +117,7 @@
 
     <div class="adm-card">
       <div class="panel-title">🧩 功能开关（大厅 / 房间）</div>
-      <div class="hint">取消勾选并保存后，对应功能在大厅与房间中对所有玩家隐藏；房间模式（语音同传/双人组队/道具赛）会被服务端直接拒绝。重新勾选即可恢复。</div>
+      <div class="hint">取消勾选并保存后，对应功能在大厅与房间中对所有玩家隐藏；房间模式（语音同传/道具赛）会被服务端直接拒绝。重新勾选即可恢复。</div>
       <div id="feat-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0"></div>
       <div class="row-actions"><button class="btn primary" id="feat-save">保存功能开关</button><span class="hint" id="feat-status"></span></div>
     </div>
@@ -133,6 +135,7 @@
   <div id="p-ai" class="adm-panel">
     <div class="adm-card">
       <div class="field"><label>Base URL</label><input type="text" id="ai-base" placeholder="https://... 或 mock://local"></div>
+      <div class="field"><label>代理(可选)</label><input type="text" id="ai-proxy" placeholder="如 http://127.0.0.1:3067；留空=直连（直连被重置时才需要填）"></div>
       <div class="field"><label>API Key</label><input type="text" id="ai-key" placeholder="留空则不修改"></div>
       <div class="field"><label>模型</label><input type="text" id="ai-model"></div>
       <div class="field"><label>思考深度</label><select id="ai-depth"><option value="low">低（快·省）</option><option value="medium">中</option><option value="high">高（强推理）</option></select></div>
@@ -196,8 +199,8 @@
 
   <div id="p-tickets" class="adm-panel">
     <div class="adm-card">
-      <div class="field"><label>状态</label><select id="tk-filter"><option value="OPEN">待处理</option><option value="REPLIED">已回复</option><option value="CLOSED">已关闭</option><option value="ALL">全部</option></select>
-        <label style="width:auto;margin-left:8px">分类</label><select id="tk-catf"><option value="">全部</option><option>问题</option><option>建议</option><option>举报</option><option>其他</option></select>
+      <div class="field"><label>状态</label><select id="tk-filter"><option value="WAITING_HUMAN">待人工</option><option value="OPEN">待处理</option><option value="REPLIED">已回复</option><option value="CLOSED">已关闭</option><option value="ALL">全部</option></select>
+        <label style="width:auto;margin-left:8px">分类</label><select id="tk-catf"><option value="">全部</option><option>客服</option><option>问题</option><option>建议</option><option>举报</option><option>其他</option></select>
         <button class="btn sm" id="tk-refresh">刷新</button></div>
       <div id="tk-list"></div>
     </div>
@@ -221,6 +224,38 @@
       <div class="field"><label>导出</label><div class="row-actions"><button class="btn" id="ops-export-users">⬇️ 导出用户 CSV</button></div></div>
       <div class="field"><label>危险操作</label><div class="row-actions"><button class="btn danger" id="ops-end-all">⏹ 强制结束全部对局</button></div></div>
       <div class="hint" id="ops-msg"></div>
+    </div>
+
+    <div class="adm-card">
+      <div class="panel-title">一键清理</div>
+      <div class="hint">清理「无用房间」与「无用账号」。建议先点「预览」核对清单，确认无误再执行删除（删除不可撤销）。</div>
+      <div class="field">
+        <label>无用房间</label>
+        <div class="row-actions">
+          <span class="hint">等待中 · 房内无人在线 · 创建超过 <input type="number" class="cl-num" id="cl-room-hours" value="1" min="0" max="720"> 小时</span>
+          <button class="btn" id="cl-scan-rooms">🔍 预览房间</button>
+          <button class="btn danger" id="cl-run-rooms">🧹 清理房间</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>无用账号</label>
+        <div class="row-actions">
+          <span class="hint">等级 ≤ <input type="number" class="cl-num" id="cl-acc-level" value="1" min="0" max="999">
+            对局数 ≤ <input type="number" class="cl-num" id="cl-acc-games" value="0" min="0">
+            且注册超过 <input type="number" class="cl-num" id="cl-acc-hours" value="72" min="0" max="8760"> 小时</span>
+          <button class="btn" id="cl-scan-accs">🔍 预览账号</button>
+          <button class="btn danger" id="cl-run-accs">🧹 清理账号</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>全部</label>
+        <div class="row-actions">
+          <button class="btn" id="cl-scan-all">🔍 全部预览</button>
+          <button class="btn danger" id="cl-run-all">🧹 一键清理（房间 + 账号）</button>
+        </div>
+      </div>
+      <div class="hint">说明：管理员、被封禁、当前在线、以及等级/对局数超阈值的账号一律保留；自己不会被删除。</div>
+      <div id="cl-result" class="hint" style="margin-top:8px"></div>
     </div>
   </div>
 

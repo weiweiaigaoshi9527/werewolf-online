@@ -7,6 +7,7 @@ import '../replay_engine.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 复盘列表：从本人最近对局进入某一局的事件回放。
 /// 没有独立列表端点，复用 GET /api/user/stats 的 recent（最多 20 条，最新在前）。
@@ -41,7 +42,7 @@ class _ReplayListScreenState extends State<ReplayListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('对局复盘')),
+      appBar: AppBar(title: const Tx('对局复盘')),
       body: StateBox(
         loading: _loading,
         empty: _recent.isEmpty,
@@ -53,14 +54,14 @@ class _ReplayListScreenState extends State<ReplayListScreen> {
               Card(
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 child: ListTile(
-                  title: Text('局 #${r['gameId']} · ${r['role']}', style: const TextStyle(color: kMoon)),
-                  subtitle: Text(
+                  title: Tx('局 #${r['gameId']} · ${r['role']}', style: TextStyle(color: kMoon)),
+                  subtitle: Tx(
                     '${r['faction'] == 'WOLF' ? '狼人' : '好人'} · ${r['won'] == true ? '胜利' : '失败'}'
                     ' · 存活到第 ${r['day'] ?? '?'} 天${r['survived'] == true ? '（活到最后）' : ''}'
                     '${r['mvp'] == true ? ' · 🏆MVP' : ''}',
-                    style: const TextStyle(color: kDim, fontSize: 12),
+                    style: TextStyle(color: kDim, fontSize: 12),
                   ),
-                  trailing: const Icon(Icons.play_circle_outline, color: kAccent),
+                  trailing: Icon(Icons.play_circle_outline, color: kAccent),
                   onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -215,7 +216,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     final st = p?.state;
     return Scaffold(
       appBar: AppBar(
-        title: Text('复盘 · 局 #${widget.gameId}'),
+        title: Tx('复盘 · 局 #${widget.gameId}'),
         actions: [
           if (_events.isNotEmpty)
             Padding(
@@ -224,8 +225,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
                 child: DropdownButton<String>(
                   value: p?.speedLabel ?? '中',
                   dropdownColor: kPanel2,
-                  style: const TextStyle(color: kText, fontSize: 13),
-                  items: [for (final k in ReplayPlayer.speeds.keys) DropdownMenuItem(value: k, child: Text(k))],
+                  style: TextStyle(color: kText, fontSize: 13),
+                  items: [for (final k in ReplayPlayer.speeds.keys) DropdownMenuItem(value: k, child: Tx(k))],
                   onChanged: (v) => v == null ? null : _setSpeed(v),
                 ),
               ),
@@ -241,7 +242,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
             if (st != null && _roles.isNotEmpty) _seatStrip(st),
             Expanded(
               child: _events.isEmpty
-                  ? const Center(child: Text('这局没有可回放的事件', style: TextStyle(color: kDim)))
+                  ? Center(child: Tx('这局没有可回放的事件', style: TextStyle(color: kDim)))
                   : ListView.builder(
                       controller: _scroll,
                       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
@@ -263,12 +264,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('房间 ${_meta['roomNo'] ?? ''} · ${_meta['winner'] ?? '—'} 胜'
+          Tx('房间 ${_meta['roomNo'] ?? ''} · ${_meta['winner'] ?? '—'} 胜'
               '${started.isEmpty ? '' : ' · ${started.length >= 16 ? started.substring(0, 16) : started}'}',
-              style: const TextStyle(color: kAccent, fontSize: 14.5, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: kAccent, fontSize: 14.5, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text('身份：${_roles.entries.map((e) => '${e.key}:${e.value}').join('  ')}',
-              style: const TextStyle(color: kDim, fontSize: 12, height: 1.5)),
+          Tx('身份：${_roles.entries.map((e) => '${e.key}:${e.value}').join('  ')}',
+              style: TextStyle(color: kDim, fontSize: 12, height: 1.5)),
         ],
       ),
     );
@@ -297,16 +298,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
               ),
               child: Column(
                 children: [
-                  Text('${st.sheriff == seat ? '👑' : ''}$seat',
+                  Tx('${st.sheriff == seat ? '👑' : ''}$seat',
                       style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           color: st.isAlive(seat) ? kMoon : kDim,
                           decoration: st.isAlive(seat) ? null : TextDecoration.lineThrough)),
                   const SizedBox(height: 2),
-                  Text(st.seatRoles[seat] ?? '',
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, color: kDim)),
-                  Text(
+                  Tx(st.seatRoles[seat] ?? '',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: kDim)),
+                  Tx(
                     st.isAlive(seat)
                         ? (st.noVote.contains(seat) ? '🃏 无投票权' : (st.isWolf(seat) ? '狼' : '好人'))
                         : (kDeathZh[st.deaths[seat]] ?? st.deaths[seat] ?? '出局'),
@@ -336,11 +337,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
         children: [
           SizedBox(
             width: 42,
-            child: Text('第${e.day}天', style: const TextStyle(color: kDim, fontSize: 11)),
+            child: Tx('第${e.day}天', style: TextStyle(color: kDim, fontSize: 11)),
           ),
-          Text(l.emoji, style: const TextStyle(fontSize: 13)),
+          Tx(l.emoji, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
-          Expanded(child: Text(l.text, style: const TextStyle(fontSize: 13, height: 1.45, color: kText))),
+          Expanded(child: Tx(l.text, style: TextStyle(fontSize: 13, height: 1.45, color: kText))),
         ],
       ),
     );
@@ -357,8 +358,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
           children: [
             Row(
               children: [
-                Text('${(p?.index ?? -1) + 1} / $total',
-                    style: const TextStyle(color: kDim, fontSize: 12), textAlign: TextAlign.center),
+                Tx('${(p?.index ?? -1) + 1} / $total',
+                    style: TextStyle(color: kDim, fontSize: 12), textAlign: TextAlign.center),
                 Expanded(
                   child: Slider(
                     // clamp 传两个 int 会返回 num，而 Slider 的 value 只接受 double
@@ -375,28 +376,28 @@ class _ReplayScreenState extends State<ReplayScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton(
-                  tooltip: '从头',
+                  tooltip: tr('从头'),
                   icon: const Icon(Icons.skip_previous),
                   onPressed: p == null || p.atStart ? null : () => _jump(0),
                 ),
                 IconButton(
-                  tooltip: '后退一帧',
+                  tooltip: tr('后退一帧'),
                   icon: const Icon(Icons.undo),
                   onPressed: p == null || p.atStart ? null : _back,
                 ),
                 FilledButton.icon(
                   onPressed: total == 0 ? null : _play,
                   icon: Icon(p?.playing == true ? Icons.pause : Icons.play_arrow),
-                  label: Text(p?.playing == true ? '暂停' : (p != null && p.atEnd ? '重播' : '播放')),
+                  label: Tx(p?.playing == true ? '暂停' : (p != null && p.atEnd ? '重播' : '播放')),
                   style: FilledButton.styleFrom(backgroundColor: kAccent, foregroundColor: const Color(0xFF1A1206)),
                 ),
                 IconButton(
-                  tooltip: '下一帧',
+                  tooltip: tr('下一帧'),
                   icon: const Icon(Icons.skip_next),
                   onPressed: p == null || p.atEnd ? null : _step,
                 ),
                 IconButton(
-                  tooltip: '跳到结尾',
+                  tooltip: tr('跳到结尾'),
                   icon: const Icon(Icons.last_page),
                   onPressed: p == null || p.atEnd ? null : () => _jump((p.total - 1).toDouble()),
                 ),

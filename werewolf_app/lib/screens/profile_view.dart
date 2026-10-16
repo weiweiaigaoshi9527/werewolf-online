@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 查看某位玩家的公开档案（底部弹窗）。数据来自 /api/friends/profile/{id}。
 Future<void> showWwProfile(BuildContext context, int userId, {String? title}) {
@@ -63,15 +64,15 @@ class _ProfileSheetState extends State<_ProfileSheet> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${_p['nickname'] ?? ''}', style: const TextStyle(color: kMoon, fontSize: 18, fontWeight: FontWeight.bold)),
+                      Tx('${_p['nickname'] ?? ''}', style: TextStyle(color: kMoon, fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 2),
-                      Text('@${_p['username'] ?? ''} · Lv.${_p['level'] ?? 1}${_p['online'] == true ? ' · 在线' : ''}',
-                          style: const TextStyle(color: kDim, fontSize: 12.5)),
+                      Tx('@${_p['username'] ?? ''} · Lv.${_p['level'] ?? 1}${_p['online'] == true ? ' · 在线' : ''}',
+                          style: TextStyle(color: kDim, fontSize: 12.5)),
                     ]),
                   ),
-                  if (_p['title'] != null) Text('${_p['title']}', style: const TextStyle(color: kAccent, fontSize: 12)),
+                  if (_p['title'] != null) Tx('${_p['title']}', style: TextStyle(color: kAccent, fontSize: 12)),
                 ]),
-                const Divider(color: kBorder, height: 26),
+                Divider(color: kBorder, height: 26),
                 if (_p['signature'] != null && '${_p['signature']}'.isNotEmpty)
                   InfoRow('签名', '${_p['signature']}'),
                 InfoRow('金币', '${_p['gold'] ?? 0}'),

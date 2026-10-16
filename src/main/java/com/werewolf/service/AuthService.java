@@ -27,14 +27,24 @@ public class AuthService {
     /** 会话有效期：12 小时（无操作则过期）。 */
     private static final long SESSION_TTL_HOURS = 12L;
 
+    /** 会话域：玩家端（游戏页面）。 */
+    public static final String SCOPE_APP = "app";
+    /** 会话域：管理后台。两端各自单会话，互不挤掉。 */
+    public static final String SCOPE_ADMIN = "admin";
+
+    /** 归一化会话域：只认 admin，其余一律按 app 处理（防前端乱传）。 */
+    public static String normalizeScope(String scope) {
+        return SCOPE_ADMIN.equalsIgnoreCase(scope == null ? "" : scope.trim()) ? SCOPE_ADMIN : SCOPE_APP;
+    }
+
     private final UserRepository userRepository;
     private final com.werewolf.repo.LoginSessionRepository loginSessionRepo;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     /** 上次持久会话过期清理时间（避免每次 resolve 都打库清理）。 */
     private volatile long lastDbPurge = 0L;
 
-    /** 单条会话记录：userId + 过期时间。 */
-    private record Session(long userId, LocalDateTime expireAt) {}
+    /** 单条会话记录：userId + 会话域 + 过期时间。 */
+    private record Session(long userId, String scope, LocalDateTime expireAt) {}
 
     /** token -> 会话（内存会话；带 TTL，服务重启后需重新登录，对局恢复在 M2 由事件流保障） */
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
@@ -45,11 +55,6 @@ public class AuthService {
     }
 
     public record RegisterResult(User user, String error) {}
-
-    /** QQ 号合法性：5-11 位纯数字。 */
-    public static boolean validQq(String qq) {
-        return qq != null && qq.matches("[1-9][0-9]{4,10}");
-    }
 
     @Transactional // 保证 count() 与 save() 在同一事务内，避免并发注册时出现多个“首个用户”
     public RegisterResult register(String username, String password, String nickname) {
@@ -84,9 +89,20 @@ public class AuthService {
         return login(username, password, 0);
     }
 
-    /** rememberDays>0 时签发持久化凭证（服务重启后仍有效），0 则仅本次内存会话。 */
+    /** rememberDays>0 时签发持久化凭证（服务重启后仍有效），0 则仅本次内存会话。默认玩家端会话域。 */
     @Transactional
     public LoginResult login(String username, String password, int rememberDays) {
+        return login(username, password, rememberDays, SCOPE_APP);
+    }
+
+    /**
+     * 带「会话域」的登录。
+     * 关键点：只在【同一会话域内】回收旧 token。这样玩家端与管理后台可以用同一账号同时登录、互不挤掉；
+     * 而同一端重复登录仍然只保留最新会话（防旧 token 继续有效）。
+     */
+    @Transactional
+    public LoginResult login(String username, String password, int rememberDays, String scope) {
+        String sc = normalizeScope(scope);
         Optional<User> found = username == null ? Optional.empty()
                 : userRepository.findByUsername(username);
         if (found.isEmpty() || !encoder.matches(password == null ? "" : password, found.get().getPasswordHash())) {
@@ -100,21 +116,22 @@ public class AuthService {
             log.warn("封禁账号尝试登录 userId={}", found.get().getId());
             return new LoginResult(null, null, "该账号已被封禁");
         }
-        // 登录成功后回收该用户所有旧 token，再签发新 token（单会话、防旧 token 继续有效）
         long userId = found.get().getId();
-        revokeSessions(userId);
-        String token = newToken(userId);
+        // 仅回收同域旧 token（另一端不受影响），再签发本域新 token
+        revokeSessions(userId, sc);
+        String token = newToken(userId, sc);
         if (rememberDays > 0) {
             // 持久化凭证：存 token 摘要（不存明文），服务重启后仍有效
             LoginSession s = new LoginSession();
             s.setTokenHash(sha256(token));
             s.setUserId(userId);
+            s.setScope(sc);
             s.setExpireAt(LocalDateTime.now().plusDays(Math.min(90, Math.max(1, rememberDays))));
             loginSessionRepo.save(s);
-            log.info("签发持久登录凭证 userId={} 保留{}天", userId, rememberDays);
+            log.info("签发持久登录凭证 userId={} 保留{}天 会话域={}", userId, rememberDays, sc);
         }
         // 安全审计：登录成功。
-        log.info("登录成功 userId={} username={}", userId, username);
+        log.info("登录成功 userId={} username={} 会话域={}", userId, username, sc);
         return new LoginResult(token, found.get(), null);
     }
 
@@ -156,9 +173,9 @@ public class AuthService {
         return u;
     }
 
-    /** 管理员以某用户身份签发一个登录 token（模拟登录 / 以该账号进入）。 */
+    /** 管理员以某用户身份签发一个登录 token（模拟登录 / 以该账号进入）。属于玩家端会话域。 */
     public String issueToken(long userId) {
-        return newToken(userId);
+        return newToken(userId, SCOPE_APP);
     }
 
     @Transactional
@@ -175,7 +192,7 @@ public class AuthService {
                 loginSessionRepo.deleteByTokenHash(ls.getTokenHash());
                 return Optional.empty();
             }
-            s = new Session(ls.getUserId(), ls.getExpireAt());
+            s = new Session(ls.getUserId(), normalizeScope(ls.getScope()), ls.getExpireAt());
             sessions.put(token, s);
             maybePurgeDb();
         }
@@ -185,7 +202,7 @@ public class AuthService {
             return Optional.empty();
         }
         // 命中即滑动续期
-        sessions.put(token, new Session(s.userId(), LocalDateTime.now().plusHours(SESSION_TTL_HOURS)));
+        sessions.put(token, new Session(s.userId(), s.scope(), LocalDateTime.now().plusHours(SESSION_TTL_HOURS)));
         return userRepository.findById(s.userId());
     }
 
@@ -195,10 +212,17 @@ public class AuthService {
         if (token != null) loginSessionRepo.deleteByTokenHash(sha256(token));
     }
 
-    /** 撤销某用户全部会话（封禁/删除账号/重新登录时踢下线）。 */
+    /** 撤销某用户【全部】会话（封禁/删除账号时踢下线，两个会话域一起清）。 */
     public void revokeSessions(long userId) {
         sessions.entrySet().removeIf(e -> e.getValue().userId() == userId);
         loginSessionRepo.deleteByUserId(userId);
+    }
+
+    /** 撤销某用户【指定会话域】的会话（重新登录时使用，另一端不受影响）。 */
+    public void revokeSessions(long userId, String scope) {
+        String sc = normalizeScope(scope);
+        sessions.entrySet().removeIf(e -> e.getValue().userId() == userId && sc.equals(e.getValue().scope()));
+        loginSessionRepo.deleteByUserIdAndScope(userId, sc);
     }
 
     /** token 摘要（服务端只存摘要，不存明文）。 */
@@ -227,10 +251,15 @@ public class AuthService {
 
     public LocalDateTime sessionTime() { return LocalDateTime.now(); }
 
-    /** 生成一个新 token 并登记会话。 */
+    /** 生成一个新 token 并登记会话（默认玩家端会话域）。 */
     private String newToken(long userId) {
+        return newToken(userId, SCOPE_APP);
+    }
+
+    /** 生成一个新 token 并登记会话（指定会话域）。 */
+    private String newToken(long userId, String scope) {
         String token = UUID.randomUUID().toString().replace("-", "");
-        sessions.put(token, new Session(userId, LocalDateTime.now().plusHours(SESSION_TTL_HOURS)));
+        sessions.put(token, new Session(userId, normalizeScope(scope), LocalDateTime.now().plusHours(SESSION_TTL_HOURS)));
         return token;
     }
 

@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 商店：与网页一致，按类型分区展示目录，购买 / 装备 / 卸下 / 携带功能道具。
 class ShopScreen extends StatefulWidget {
@@ -57,11 +58,11 @@ class _ShopScreenState extends State<ShopScreen> {
     final gold = (context.watch<AppStore>().user?['gold']) ?? 0;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('商店'),
+        title: const Tx('商店'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: Center(child: Text('💰 $gold', style: const TextStyle(color: kAccent, fontWeight: FontWeight.bold))),
+            child: Center(child: Tx('💰 $gold', style: TextStyle(color: kAccent, fontWeight: FontWeight.bold))),
           ),
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
@@ -69,9 +70,9 @@ class _ShopScreenState extends State<ShopScreen> {
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: kAccent))
+            ? Center(child: CircularProgressIndicator(color: kAccent))
             : (_error != null
-                ? ListView(padding: const EdgeInsets.all(24), children: [Text(_error!, style: const TextStyle(color: kBlood))])
+                ? ListView(padding: const EdgeInsets.all(24), children: [Tx(_error!, style: TextStyle(color: kBlood))])
                 : _list()),
       ),
     );
@@ -99,23 +100,23 @@ class _ShopScreenState extends State<ShopScreen> {
       child: ListTile(
         leading: type == 'AVATAR' || type == 'FRAME'
             ? WwAvatar(avatarId: it['asset'], size: 40)
-            : CircleAvatar(backgroundColor: kPanel, child: Text(_icon(type), style: const TextStyle(fontSize: 18))),
-        title: Text(it['name'] ?? '', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-        subtitle: Text(
+            : CircleAvatar(backgroundColor: kPanel, child: Tx(_icon(type), style: const TextStyle(fontSize: 18))),
+        title: Tx(it['name'] ?? '', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+        subtitle: Tx(
           (it['description'] ?? '') + (owned ? '  · 已拥有' : ''),
-          style: const TextStyle(color: kDim, fontSize: 12.5),
+          style: TextStyle(color: kDim, fontSize: 12.5),
         ),
         trailing: owned
             ? (type == 'FUNCTION'
-                ? TextButton(onPressed: () => _act('/api/user/carry', {'itemDefId': it['id']}, '已设为带入下一局'), child: const Text('带入'))
+                ? TextButton(onPressed: () => _act('/api/user/carry', {'itemDefId': it['id']}, '已设为带入下一局'), child: const Tx('带入'))
                 : Row(mainAxisSize: MainAxisSize.min, children: [
-                    TextButton(onPressed: () => _act('/api/user/equip', {'itemDefId': it['id']}, '已装备'), child: const Text('装备')),
-                    TextButton(onPressed: () => _act('/api/user/unequip', {'type': type}, '已卸下'), child: const Text('卸下')),
+                    TextButton(onPressed: () => _act('/api/user/equip', {'itemDefId': it['id']}, '已装备'), child: const Tx('装备')),
+                    TextButton(onPressed: () => _act('/api/user/unequip', {'type': type}, '已卸下'), child: const Tx('卸下')),
                   ]))
             : FilledButton(
                 onPressed: () => _act('/api/shop/buy', {'itemDefId': it['id']}, '购买成功'),
                 style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14)),
-                child: Text(discount ? '原价${it['origPrice']} 现$price' : '$price 金'),
+                child: Tx(discount ? '原价${it['origPrice']} 现$price' : '$price 金'),
               ),
       ),
     );

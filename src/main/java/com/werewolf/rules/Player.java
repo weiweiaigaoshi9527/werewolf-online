@@ -4,7 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** 玩家运行时状态（可变）。座位号 1-based。 */
-public class Player {
+public class Player implements java.io.Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     public final int seat;
     public final long userId;

@@ -21,7 +21,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-public class GameEngine {
+public class GameEngine implements java.io.Serializable {
+
+    private static final long serialVersionUID = 1L;
     public final boolean huntByBorder;
     /** 屠边判定前提：开局时场上是否存在神职 / 平民。
      *  若某类角色开局就不存在，则不能以“该类全灭”判定狼胜（否则缺神/缺民的板子会开局即狼胜）。 */
@@ -48,10 +50,25 @@ public class GameEngine {
     private int silencerTarget = 0;
     private int nightWolfKill = 0;
     private final Set<Integer> sheriffCandidates = new LinkedHashSet<Integer>();
+    /** 本局所有【上过警】的座位（退水后仍保留）：只有从未上警的人才具备警长投票权。 */
+    private final Set<Integer> sheriffSignups = new LinkedHashSet<Integer>();
     private final Map<Integer, Integer> sheriffVotes = new HashMap<Integer, Integer>();
     private int sheriffSeat = 0;
+    /** 待移交的警徽：警长死亡后记录其座位，进入 SHERIFF_TRANSFER 阶段由本人决定去向（0=无需移交）。 */
+    private int pendingSheriffTransfer = 0;
+    /** 警徽移交完成后的去向："DEATHS"=回到死亡结算流程（默认）；"NIGHT"=直接入夜（自爆触发时用）。 */
+    private String afterTransferResume = "DEATHS";
+    /** 是否等待警长决定白天发言顺序（警左/警右）。 */
+    private boolean pendingSheriffOrder = false;
     private boolean sheriffElectionDone = false;
     private int sheriffSignupCursor = 0;
+    /** 警长竞选发言顺序（仅上警的候选人，按座位）；为空表示不在发言环节。 */
+    private List<Integer> sheriffSpeechOrder = new ArrayList<Integer>();
+    private int sheriffSpeechIndex = 0;
+    /** 退水环节：上警的候选人依次决定是否退出竞选（退水者不参与投票），按座位排序。 */
+    private List<Integer> sheriffWithdrawOrder = new ArrayList<Integer>();
+    private int sheriffWithdrawIndex = 0;
+    private boolean sheriffWithdrawDone = false;
     private List<Integer> speakingOrder = new ArrayList<Integer>();
     private int speakingIndex = 0;
     private final Map<Integer, Integer> exileVotes = new LinkedHashMap<Integer, Integer>();
@@ -60,17 +77,11 @@ public class GameEngine {
     private final Deque<Integer> pendingShooters = new ArrayDeque<Integer>();
     private int shooterCursor = 0;
     private final Deque<Integer> lastWordsQueue = new ArrayDeque<Integer>();
-    private final List<int[]> duoPairs = new ArrayList<int[]>();
     private final List<Integer> dawnDeaths = new ArrayList<Integer>();
     private final List<Integer> nightDeaths = new ArrayList<Integer>();
     private String afterDeathResume = "DAY";
 
     public GameEngine(BoardConfig board, List<Long> userIds, long seed, boolean huntByBorder) {
-        this(board, userIds, seed, huntByBorder, List.of());
-    }
-
-    /** 双人模式构造：duos 为组队对子的座位号（1-based），保证每对成员同阵营。 */
-    public GameEngine(BoardConfig board, List<Long> userIds, long seed, boolean huntByBorder, List<int[]> duos) {
         String err = BoardValidator.validate(board);
         if (err != null) {
             throw new IllegalArgumentException("板子非法: " + err);
@@ -82,38 +93,17 @@ public class GameEngine {
         int total = userIds.size();
         int wolfCount = board.wolfCount();
 
-        // 1) 组队对子优先安排到同一阵营（有 2 个狼位就整对进狼队，否则整对进好人）
+        // 1) 随机挑出狼位，其余进好人
         List<Integer> wolfSeats = new ArrayList<>();
         List<Integer> goodSeats = new ArrayList<>();
-        Set<Integer> placed = new HashSet<>();
-        List<int[]> pairs = duos == null ? List.of() : duos;
-        for (int[] d : pairs) if (d != null && d.length >= 2) duoPairs.add(new int[]{d[0], d[1]});
-        for (int[] d : pairs) {
-            if (d == null || d.length < 2) continue;
-            int a = d[0], b = d[1];
-            if (a == b || a < 1 || a > total || b < 1 || b > total) continue;
-            if (placed.contains(a) || placed.contains(b)) continue;
-            if (wolfSeats.size() + 2 <= wolfCount) {
-                wolfSeats.add(a);
-                wolfSeats.add(b);
-            } else {
-                goodSeats.add(a);
-                goodSeats.add(b);
-            }
-            placed.add(a);
-            placed.add(b);
-        }
-        // 2) 剩余座位随机填充狼位，其余进好人
         List<Integer> rest = new ArrayList<>();
-        for (int s = 1; s <= total; s++) {
-            if (!placed.contains(s)) rest.add(s);
-        }
+        for (int s = 1; s <= total; s++) rest.add(s);
         Collections.shuffle(rest, new Random(seed));
         for (int s : rest) {
             if (wolfSeats.size() < wolfCount) wolfSeats.add(s);
             else goodSeats.add(s);
         }
-        // 3) 按阵营拆角色池并分配
+        // 2) 按阵营拆角色池并分配
         List<Role> wolfRoles = new ArrayList<>();
         List<Role> goodRoles = new ArrayList<>();
         board.counts().forEach((r, c) -> {
@@ -135,8 +125,7 @@ public class GameEngine {
             this.players.add(p);
             this.bySeat.put(p.seat, p);
         }
-        this.record("GAME_START", 0, 0, "board=" + String.valueOf(board) + " huntByBorder=" + huntByBorder
-                + " duos=" + (pairs.isEmpty() ? "0" : pairs.size()));
+        this.record("GAME_START", 0, 0, "board=" + String.valueOf(board) + " huntByBorder=" + huntByBorder);
         // 记录开局是否存在神/民，供屠边判定使用（避免缺神或缺民的板子被误判为“屠边达成”）
         this.borderGodsExist = board.godCount() > 0;
         this.borderVillagersExist = board.villagerCount() > 0;
@@ -211,9 +200,6 @@ public class GameEngine {
             }
         }
     }
-
-    /** 双人组队的原始对子（真实座位号，1-based）。 */
-    public List<int[]> duos() { return duoPairs; }
 
     public GamePhase phase() {
         return this.phase;
@@ -331,6 +317,19 @@ public class GameEngine {
                 this.proceedAfterDeaths();
                 return true;
             }
+            case SHERIFF_TRANSFER -> {
+                // 兜底：无人可交则撕毁警徽（正常情况下由警长本人决定）
+                this.pendingSheriffTransfer = 0;
+                this.sheriffSeat = 0;
+                this.proceedAfterDeaths();
+                return true;
+            }
+            case SHERIFF_ORDER -> {
+                // 兜底：默认从最小存活座位开始发言（正常情况下由警长本人决定）
+                this.pendingSheriffOrder = false;
+                this.startSpeakingFrom(0);
+                return true;
+            }
             case DAY_SPEAK -> {
                 this.advanceSpeaking();
                 return true;
@@ -344,12 +343,9 @@ public class GameEngine {
                 return true;
             }
             case SHERIFF_ELECTION -> {
-                if (this.sheriffCandidates.isEmpty()) {
-                    this.sheriffElectionDone = true;
-                    this.beginSpeaking();
-                } else {
-                    this.resolveSheriff();
-                }
+                // 兜底：无人可行动 → 直接结算（候选人全退水/无选民时结果即「本轮无警长」）
+                this.sheriffWithdrawDone = true;
+                this.resolveSheriff();
                 return true;
             }
             default -> {
@@ -477,14 +473,22 @@ public class GameEngine {
             if (t == 0) continue;
             tally.merge(t, 1, Integer::sum);
         }
-        int best = 0;
-        int bestCount = 0;
-        for (Map.Entry e : tally.entrySet()) {
-            if ((Integer)e.getValue() <= bestCount) continue;
-            best = (Integer)e.getKey();
-            bestCount = (Integer)e.getValue();
+        int bestCount = tally.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        ArrayList<Integer> top = new ArrayList<Integer>();
+        for (Map.Entry<Integer, Integer> e : tally.entrySet()) {
+            if (e.getValue() == bestCount) top.add(e.getKey());
         }
+        Collections.sort(top);
+        // 平票处理：按「天数 + 候选集合」做确定性随机，保证同一局结果可复现（快照恢复/回放一致），
+        // 同时避免固定偏向最小座位号。原实现依赖 HashMap 迭代顺序，结果不可复现。
+        int best;
+        if (top.isEmpty()) best = 0;
+        else if (top.size() == 1) best = top.get(0);
+        else best = top.get(new Random(this.day * 131L + (long) top.hashCode()).nextInt(top.size()));
         this.nightWolfKill = best;
+        if (top.size() > 1) {
+            this.record("NIGHT_ACTION", 0, best, "WOLF_KILL_TIE");
+        }
         this.record("NIGHT_ACTION", 0, best, "WOLF_KILL_RESOLVED");
     }
 
@@ -524,6 +528,9 @@ public class GameEngine {
         if (poisonTarget != 0) {
             if (!w.witchPoisonAvailable) {
                 throw new IllegalActionException("毒药已用完");
+            }
+            if (poisonTarget == w.seat) {
+                throw new IllegalActionException("女巫不能毒自己");
             }
             t = this.bySeat.get(poisonTarget);
             if (t == null || !t.alive) {
@@ -665,7 +672,7 @@ public class GameEngine {
         p.deathCause = cause;
         p.deathDay = this.day;
         p.canShootOnDeath = false;
-        if (allowShoot && p.role == Role.HUNTER) {
+        if (allowShoot && (p.role == Role.HUNTER || p.role == Role.WOLF_KING)) {
             p.canShootOnDeath = true;
         }
         this.dawnDeaths.add(seat);
@@ -701,6 +708,15 @@ public class GameEngine {
             return;
         }
         this.shooterCursor = 0;
+        // 警长死亡后先移交警徽（由警长本人决定去向）。若此刻胜负已定则直接丢弃，避免结算后还弹移交界面。
+        if (this.pendingSheriffTransfer != 0) {
+            if (this.detectWinner() != null) {
+                this.pendingSheriffTransfer = 0;
+            } else {
+                this.phase = GamePhase.SHERIFF_TRANSFER;
+                return;
+            }
+        }
         if (!this.lastWordsQueue.isEmpty()) {
             this.phase = GamePhase.LAST_WORDS;
             return;
@@ -726,9 +742,10 @@ public class GameEngine {
             if (t == null || !t.alive) {
                 throw new IllegalActionException("开枪目标无效");
             }
-            boolean chain = s.role == Role.HUNTER || s.role == Role.WOLF_KING;
             this.kill(target, "SHOT", true);
-            if (this.bySeat.get((Object)Integer.valueOf((int)target)).role == Role.HUNTER) {
+            // 连环枪：被枪杀的猎人 / 狼王同样可以再开枪（被毒不可开枪的规则由 kill 的 allowShoot 控制）
+            Player victim = this.bySeat.get(target);
+            if (victim != null && victim.canShootOnDeath) {
                 this.pendingShooters.add(target);
             }
             this.record("SHOOT", shooterSeat, target, s.role.cnName() + "开枪");
@@ -761,7 +778,13 @@ public class GameEngine {
     private void beginSheriffElection() {
         this.phase = GamePhase.SHERIFF_ELECTION;
         this.sheriffCandidates.clear();
+        this.sheriffSignups.clear();
         this.sheriffVotes.clear();
+        this.sheriffSpeechOrder = new ArrayList<Integer>();
+        this.sheriffSpeechIndex = 0;
+        this.sheriffWithdrawOrder = new ArrayList<Integer>();
+        this.sheriffWithdrawIndex = 0;
+        this.sheriffWithdrawDone = false;
         this.sheriffSignupCursor = 1;
         while (this.sheriffSignupCursor <= this.players.size() && !this.bySeat.get((Object)Integer.valueOf((int)this.sheriffSignupCursor)).alive) {
             ++this.sheriffSignupCursor;
@@ -780,6 +803,7 @@ public class GameEngine {
         Player p = this.bySeat.get(seat);
         if (p != null && p.alive && join) {
             this.sheriffCandidates.add(seat);
+            this.sheriffSignups.add(seat);   // 上过警即失去投票权（即使之后退水）
         }
         this.record("SHERIFF_SIGNUP", seat, 0, join ? "上警" : "不上");
         this.advanceSignup();
@@ -794,14 +818,106 @@ public class GameEngine {
                 this.sheriffElectionDone = true;
                 this.beginSpeaking();
             } else {
-                // 全员上警（没有合法选民）时直接结算，避免无人可投票导致对局永久卡死
-                long voters = this.alive().stream().filter(p -> !this.sheriffCandidates.contains(p.seat)).count();
-                if (voters == 0L) {
-                    this.resolveSheriff();
-                } else {
-                    this.phase = GamePhase.SHERIFF_ELECTION;
-                }
+                // 报名结束后进入「竞选发言」（仅候选人发言），随后是「退水」环节，最后才投票
+                this.beginSheriffSpeeches();
             }
+        }
+    }
+
+    /** 警长竞选发言：仅上警的候选人依次发言（顺序按座位），未上警者不发言。 */
+    private void beginSheriffSpeeches() {
+        List<Integer> order = new ArrayList<>();
+        for (Player p : this.alive()) if (this.sheriffCandidates.contains(p.seat)) order.add(p.seat);
+        this.sheriffSpeechOrder = order;
+        this.sheriffSpeechIndex = 0;
+        this.phase = GamePhase.SHERIFF_ELECTION;
+    }
+
+    /** 是否处于「警长竞选发言」环节（发言未走完，尚未开始投票）。 */
+    public boolean sheriffSpeechActive() {
+        return this.phase == GamePhase.SHERIFF_ELECTION && !this.sheriffSpeechOrder.isEmpty()
+                && this.sheriffSpeechIndex < this.sheriffSpeechOrder.size();
+    }
+
+    /** 当前应发言的竞选者/选民座位（0=不在发言环节）。 */
+    public int currentSheriffSpeaker() {
+        return this.sheriffSpeechActive() ? this.sheriffSpeechOrder.get(this.sheriffSpeechIndex) : 0;
+    }
+
+    /** 当前竞选发言顺序（供前端展示）。 */
+    public List<Integer> sheriffSpeechOrder() {
+        return Collections.unmodifiableList(this.sheriffSpeechOrder);
+    }
+
+    private void advanceSheriffSpeech() {
+        ++this.sheriffSpeechIndex;
+        while (this.sheriffSpeechIndex < this.sheriffSpeechOrder.size()
+                && !this.bySeat.get((Object)Integer.valueOf((int)this.sheriffSpeechOrder.get((int)this.sheriffSpeechIndex))).alive) {
+            ++this.sheriffSpeechIndex;
+        }
+        // 发言全部走完 → 进入「退水」环节
+        if (this.sheriffSpeechIndex >= this.sheriffSpeechOrder.size()) {
+            this.beginSheriffWithdraw();
+        }
+    }
+
+    /** 退水环节：所有存活候选人依次选择是否退出竞选；退水者不再参与投票。 */
+    private void beginSheriffWithdraw() {
+        List<Integer> order = new ArrayList<>();
+        for (Player p : this.alive()) if (this.sheriffCandidates.contains(p.seat)) order.add(p.seat);
+        this.sheriffWithdrawOrder = order;
+        this.sheriffWithdrawIndex = 0;
+        this.sheriffWithdrawDone = false;
+        this.phase = GamePhase.SHERIFF_ELECTION;
+        if (order.isEmpty()) {
+            this.sheriffWithdrawDone = true;
+            this.afterSheriffWithdraw();
+        }
+    }
+
+    /** 是否处于「退水」环节（候选人依次表态中）。 */
+    public boolean sheriffWithdrawActive() {
+        return this.phase == GamePhase.SHERIFF_ELECTION && !this.sheriffWithdrawDone
+                && this.sheriffWithdrawIndex < this.sheriffWithdrawOrder.size();
+    }
+
+    /** 当前轮到的退水表态者座位（0=不在退水环节）。 */
+    public int currentSheriffWithdrawer() {
+        return this.sheriffWithdrawActive() ? this.sheriffWithdrawOrder.get(this.sheriffWithdrawIndex) : 0;
+    }
+
+    /** 候选人退水与否（true=退出竞选，此后不再参与警长投票）。 */
+    public void submitSheriffWithdraw(int seat, boolean withdraw) {
+        this.require(GamePhase.SHERIFF_ELECTION, "非警长竞选");
+        if (!this.sheriffWithdrawActive()) {
+            throw new IllegalActionException("不在退水环节");
+        }
+        if (seat != this.currentSheriffWithdrawer()) {
+            throw new IllegalActionException("退水顺序错误");
+        }
+        if (withdraw) {
+            this.sheriffCandidates.remove(seat);
+            this.record("SHERIFF_WITHDRAW", seat, 0, "退水");
+        }
+        this.advanceSheriffWithdraw();
+    }
+
+    private void advanceSheriffWithdraw() {
+        ++this.sheriffWithdrawIndex;
+        while (this.sheriffWithdrawIndex < this.sheriffWithdrawOrder.size()
+                && !this.bySeat.get((Object)Integer.valueOf((int)this.sheriffWithdrawOrder.get((int)this.sheriffWithdrawIndex))).alive) {
+            ++this.sheriffWithdrawIndex;
+        }
+        if (this.sheriffWithdrawIndex >= this.sheriffWithdrawOrder.size()) {
+            this.sheriffWithdrawDone = true;
+            this.afterSheriffWithdraw();
+        }
+    }
+
+    /** 退水环节结束：候选人已全部表态。没有候选人可投、或没有合法选民时直接结算，否则进入投票。 */
+    private void afterSheriffWithdraw() {
+        if (this.nextSheriffVoter() == 0) {
+            this.resolveSheriff();
         }
     }
 
@@ -813,18 +929,24 @@ public class GameEngine {
         if (this.sheriffSignupCursor <= this.players.size()) {
             throw new IllegalActionException("报名尚未结束");
         }
+        if (this.sheriffSpeechActive()) {
+            throw new IllegalActionException("竞选发言尚未结束");
+        }
+        if (!this.sheriffWithdrawDone) {
+            throw new IllegalActionException("退水环节尚未结束");
+        }
         Player v = this.bySeat.get(voterSeat);
         if (v == null || !v.alive) {
             throw new IllegalActionException("投票者无效");
         }
-        if (this.sheriffCandidates.contains(voterSeat)) {
-            throw new IllegalActionException("候选人无投票权");
+        if (this.sheriffSignups.contains(voterSeat)) {
+            throw new IllegalActionException("上过警的人无投票权");
         }
         if (target != 0 && !this.sheriffCandidates.contains(target)) {
             throw new IllegalActionException("投票目标非候选人");
         }
         this.sheriffVotes.put(voterSeat, target);
-        long voters = this.alive().stream().filter(p -> !this.sheriffCandidates.contains(p.seat)).count();
+        long voters = this.alive().stream().filter(p -> !this.sheriffSignups.contains(p.seat)).count();
         if ((long)this.sheriffVotes.size() >= voters) {
             this.resolveSheriff();
         }
@@ -862,36 +984,79 @@ public class GameEngine {
     }
 
     private void beginSpeaking() {
-        this.phase = GamePhase.DAY_SPEAK;
         this.inTiebreak = false;
         this.tiebreakCandidates.clear();
         this.exileVotes.clear();
-        this.speakingOrder = this.buildSpeakingOrder();
-        this.speakingIndex = 0;
+        // 原版规则：有警长时先由警长决定从警左还是警右开始发言，再进入发言环节
+        if (this.sheriffSeat != 0) {
+            Player sp = this.bySeat.get(this.sheriffSeat);
+            if (sp != null && sp.alive) {
+                this.pendingSheriffOrder = true;
+                this.phase = GamePhase.SHERIFF_ORDER;
+                return;
+            }
+        }
+        this.startSpeakingFrom(0);
     }
 
-    private List<Integer> buildSpeakingOrder() {
-        int start;
+    /** 是否正在等待警长决定白天发言顺序。 */
+    public boolean pendingSheriffOrder() {
+        return this.pendingSheriffOrder;
+    }
+
+    /**
+     * 警长决定白天发言顺序：{@code startSeat} 为「第一个发言的人」，其后按座位号递增依次发言。
+     * startSeat=0 表示无警长，从最小存活座位开始（保持原有行为）。
+     */
+    public void submitSheriffOrder(int startSeat) {
+        this.require(GamePhase.SHERIFF_ORDER, "非警长决定发言顺序阶段");
+        if (!this.pendingSheriffOrder) {
+            throw new IllegalActionException("当前无需决定发言顺序");
+        }
+        if (startSeat != 0) {
+            Player t = this.bySeat.get(startSeat);
+            if (t == null || !t.alive) {
+                throw new IllegalActionException("起始发言座位无效");
+            }
+        }
+        this.pendingSheriffOrder = false;
+        this.startSpeakingFrom(startSeat);
+    }
+
+    /** 按给定起点生成发言顺序并进入白天发言阶段。 */
+    private void startSpeakingFrom(int startSeat) {
         List<Integer> aliveSeats = this.alive().stream().map(p -> p.seat).sorted().toList();
         int n = aliveSeats.size();
-        if (n == 0) {
-            return List.of();
-        }
-        if (this.sheriffSeat != 0 && this.alive().stream().anyMatch(p -> p.seat == this.sheriffSeat)) {
-            int sIdx = aliveSeats.indexOf(this.sheriffSeat);
-            boolean rightward = new Random(this.day * 31 + 7).nextBoolean();
-            start = rightward ? (sIdx + 1) % n : (sIdx - 1 + n) % n;
-        } else {
-            start = 0;
+        int start = 0;
+        if (startSeat != 0 && n > 0) {
+            int idx = aliveSeats.indexOf(startSeat);
+            if (idx >= 0) start = idx;
         }
         ArrayList<Integer> order = new ArrayList<Integer>();
         for (int i = 0; i < n; ++i) {
             order.add(aliveSeats.get((start + i) % n));
         }
-        return order;
+        this.speakingOrder = order;
+        this.speakingIndex = 0;
+        this.phase = GamePhase.DAY_SPEAK;
     }
 
     public void submitSpeech(int seat, String text) {
+        // 警长竞选发言：复用同一套发言记录，走完再投票
+        if (this.phase == GamePhase.SHERIFF_ELECTION) {
+            int cur = this.currentSheriffSpeaker();
+            if (cur == 0 || seat != cur) {
+                throw new IllegalActionException("不是该玩家发言");
+            }
+            Player sp = this.bySeat.get(seat);
+            if (sp == null || !sp.canSpeak()) {
+                this.record("SPEECH", seat, 0, "[被禁言，过麦]");
+            } else {
+                this.record("SPEECH", seat, 0, text == null ? "" : text);
+            }
+            this.advanceSheriffSpeech();
+            return;
+        }
         this.require(GamePhase.DAY_SPEAK, "非发言阶段");
         int cur = this.currentSpeaker();
         if (seat != cur) {
@@ -965,6 +1130,8 @@ public class GameEngine {
         }
         for (Player p : this.alive()) {
             if (!p.accusedByCrow) continue;
+            // 已翻牌的白痴免疫放逐，诽谤加票对他无效（否则可能把他推成最高票）
+            if (p.idiotRevealed) continue;
             tally.merge(p.seat, 1.0, Double::sum);
         }
         return tally;
@@ -1009,6 +1176,13 @@ public class GameEngine {
         }
         int out = maxSeats.get(0);
         Player p2 = this.bySeat.get(out);
+        if (p2.role == Role.IDIOT && p2.idiotRevealed) {
+            // 已翻牌的白痴免疫放逐：即使被推成最高票也不再出局（标准规则）
+            this.record("VOTE_RESULT", 0, 0, "白痴已翻牌，无人被放逐");
+            this.inTiebreak = false;
+            this.endDay();
+            return;
+        }
         if (p2.role == Role.IDIOT && !p2.idiotRevealed) {
             p2.idiotRevealed = true;
             this.record("IDIOT_REVEAL", out, 0, "白痴翻牌免死，失去投票权");
@@ -1060,17 +1234,55 @@ public class GameEngine {
         this.proceedAfterDeaths();
     }
 
+    /**
+     * 警长死亡：收回警徽并登记「待移交」，由死亡警长本人决定交给谁（或撕毁）。
+     * 真正的交接在 SHERIFF_TRANSFER 阶段由 {@link #submitSheriffTransfer(int)} 完成，
+     * 保证与原版一致——警徽去向由警长决定，而不是系统随机分配。
+     */
     private void handleSheriffDeath() {
-        List<Integer> others = this.alive().stream().map(p -> p.seat).filter(s -> s != this.sheriffSeat).toList();
-        this.bySeat.get((Object)Integer.valueOf((int)this.sheriffSeat)).isSheriff = false;
-        if (!others.isEmpty() && new Random(this.day * 13 + 3).nextBoolean()) {
-            int next;
-            this.sheriffSeat = next = others.get(new Random(this.day * 17 + 5).nextInt(others.size())).intValue();
-            this.bySeat.get((Object)Integer.valueOf((int)next)).isSheriff = true;
-            this.record("SHERIFF_WIN", next, 0, "警徽移交");
+        int dead = this.sheriffSeat;
+        if (dead == 0) return;
+        Player p = this.bySeat.get(dead);
+        if (p != null) p.isSheriff = false;
+        this.sheriffSeat = 0;
+        this.pendingSheriffTransfer = dead;
+    }
+
+    /** 当前是否有待移交的警徽（死亡警长座位，0=无）。 */
+    public int pendingSheriffTransfer() {
+        return this.pendingSheriffTransfer;
+    }
+
+    /**
+     * 警徽移交：由死亡警长指定一名存活玩家继承（target>0），或撕毁警徽（target=0）。
+     */
+    public void submitSheriffTransfer(int target) {
+        this.require(GamePhase.SHERIFF_TRANSFER, "非警徽移交阶段");
+        int from = this.pendingSheriffTransfer;
+        if (from == 0) {
+            throw new IllegalActionException("当前无需移交警徽");
+        }
+        if (target != 0) {
+            if (target == from) {
+                throw new IllegalActionException("不能把警徽交给自己");
+            }
+            Player t = this.bySeat.get(target);
+            if (t == null || !t.alive) {
+                throw new IllegalActionException("警徽移交目标无效");
+            }
+            this.sheriffSeat = target;
+            t.isSheriff = true;
+            this.record("SHERIFF_WIN", target, 0, "警徽移交");
         } else {
             this.sheriffSeat = 0;
             this.record("SHERIFF_WIN", 0, 0, "警徽撕毁");
+        }
+        this.pendingSheriffTransfer = 0;
+        if ("NIGHT".equals(this.afterTransferResume)) {
+            this.afterTransferResume = "DEATHS";
+            this.beginNight();
+        } else {
+            this.proceedAfterDeaths();
         }
     }
 
@@ -1118,6 +1330,12 @@ public class GameEngine {
         }
         int out = maxSeats.get(0);
         Player p = this.bySeat.get(out);
+        if (p.role == Role.IDIOT && p.idiotRevealed) {
+            // 已翻牌的白痴免疫放逐（PK 轮同样适用）
+            this.record("VOTE_RESULT", 0, 0, "白痴已翻牌，无人被放逐");
+            this.endDay();
+            return;
+        }
         if (p.role == Role.IDIOT && !p.idiotRevealed) {
             p.idiotRevealed = true;
             this.record("IDIOT_REVEAL", out, 0, "白痴翻牌免死");
@@ -1171,63 +1389,92 @@ public class GameEngine {
         this.beginNight();
     }
 
-    public void submitWhiteWolfBlowUp(int seat, int target) {
+    /**
+     * 狼人白天自爆：直接入夜（跳过当天剩余的发言/投票），自爆者出局并公开身份。
+     * 白狼王自爆时必须带走一名玩家（target>0）；普通狼人自爆不带人（target 必须为 0）。
+     */
+    public void submitWolfBlowUp(int seat, int target) {
         Player p = this.bySeat.get(seat);
-        if (p == null || !p.alive || p.role != Role.WHITE_WOLF_KING) {
-            throw new IllegalActionException("非白狼王");
-        }
-        if (!p.whiteWolfCanBlowUp) {
-            throw new IllegalActionException("本局已自爆过");
+        if (p == null || !p.alive || !p.isWolf()) {
+            throw new IllegalActionException("只有存活的狼人才能自爆");
         }
         if (this.phase != GamePhase.DAY_SPEAK && this.phase != GamePhase.SHERIFF_ELECTION && this.phase != GamePhase.DAY_VOTE) {
             throw new IllegalActionException("只能在白天自爆");
         }
-        Player t = this.bySeat.get(target);
-        if (t == null || !t.alive) {
-            throw new IllegalActionException("自爆目标无效");
+        boolean white = p.role == Role.WHITE_WOLF_KING;
+        if (white && !p.whiteWolfCanBlowUp) {
+            throw new IllegalActionException("本局已自爆过");
         }
-        if (target == seat) {
-            throw new IllegalActionException("自爆目标不能是自己");
+        if (!white && target != 0) {
+            throw new IllegalActionException("普通狼人自爆不能带走玩家");
         }
-        p.whiteWolfCanBlowUp = false;
+        if (white && target == 0) {
+            throw new IllegalActionException("白狼王自爆必须带走一名玩家");
+        }
+        if (target != 0) {
+            Player t = this.bySeat.get(target);
+            if (t == null || !t.alive) {
+                throw new IllegalActionException("自爆目标无效");
+            }
+            if (target == seat) {
+                throw new IllegalActionException("自爆目标不能是自己");
+            }
+        }
+        if (white) {
+            p.whiteWolfCanBlowUp = false;
+        }
         p.alive = false;
         p.deathCause = "BLOWUP";
         p.deathDay = this.day;
-        this.record("WHITE_WOLF_BLOWUP", seat, target, "白狼王自爆");
-        // 白狼王本人若是警长，同样触发警徽流
+        this.record("WHITE_WOLF_BLOWUP", seat, target, white ? "白狼王自爆" : "狼人自爆");
+        // 自爆者本人若是警长，同样触发警徽流
         if (seat == this.sheriffSeat) {
             this.handleSheriffDeath();
         }
-        this.kill(target, "BLOWUP", false);
+        if (target != 0) {
+            this.kill(target, "BLOWUP", false);
+        }
         if (this.checkWin()) {
+            return;
+        }
+        // 自爆者是警长时，先由他决定警徽去向，再进入黑夜
+        if (this.pendingSheriffTransfer != 0) {
+            this.afterTransferResume = "NIGHT";
+            this.phase = GamePhase.SHERIFF_TRANSFER;
             return;
         }
         this.beginNight();
     }
 
-    private boolean checkWin() {
+    /** 纯判定：当前局面是否已分出胜负（不修改任何状态，供「是否需要移交警徽」等流程预判）。 */
+    private Faction detectWinner() {
         if (this.winner != null) {
-            return true;
+            return this.winner;
         }
         boolean wolvesAlive = !this.aliveWolves().isEmpty();
         boolean godsAlive = this.alive().stream().anyMatch(p -> p.role.isGod());
         boolean villagersAlive = this.alive().stream().anyMatch(p -> p.role.isVillager());
-        Faction w = null;
         if (!wolvesAlive) {
-            w = Faction.VILLAGER;
-        } else if (this.aliveWolves().size() >= this.aliveGood().size()) {
-            w = Faction.WOLF;
-        } else if (this.huntByBorder
-                && (this.borderGodsExist && !godsAlive || this.borderVillagersExist && !villagersAlive)) {
-            w = Faction.WOLF; // 屠边：仅当开局存在的神/民被全灭才判狼胜（缺神或缺民的板子不误判）
+            return Faction.VILLAGER;
         }
-        if (w != null) {
+        if (this.aliveWolves().size() >= this.aliveGood().size()) {
+            return Faction.WOLF;
+        }
+        if (this.huntByBorder
+                && (this.borderGodsExist && !godsAlive || this.borderVillagersExist && !villagersAlive)) {
+            return Faction.WOLF; // 屠边：仅当开局存在的神/民被全灭才判狼胜（缺神或缺民的板子不误判）
+        }
+        return null;
+    }
+
+    private boolean checkWin() {
+        Faction w = this.detectWinner();
+        if (w != null && this.winner == null) {
             this.winner = w;
             this.phase = GamePhase.GAME_OVER;
             this.record("GAME_OVER", 0, 0, "winner=" + (w == Faction.WOLF ? "狼人" : "好人"));
-            return true;
         }
-        return false;
+        return this.winner != null;
     }
 
     private void require(GamePhase expected, String msg) {
@@ -1283,11 +1530,28 @@ public class GameEngine {
             case SHOOT: {
                 return this.currentShooter();
             }
+            case SHERIFF_TRANSFER: {
+                return this.pendingSheriffTransfer;   // 由死亡警长本人决定警徽去向
+            }
+            case SHERIFF_ORDER: {
+                return this.pendingSheriffOrder ? this.sheriffSeat : 0;   // 由警长本人决定发言顺序
+            }
             case LAST_WORDS: {
                 return this.currentLastWords();
             }
             case SHERIFF_ELECTION: {
-                return this.sheriffSignupActive() ? this.sheriffSignupCursor : this.nextSheriffVoter();
+                if (this.sheriffSignupActive()) {
+                    return this.sheriffSignupCursor;
+                }
+                int sp = this.currentSheriffSpeaker();   // 竞选发言环节：轮到该玩家发言
+                if (sp != 0) {
+                    return sp;
+                }
+                int wd = this.currentSheriffWithdrawer();   // 退水环节：轮到该候选人表态
+                if (wd != 0) {
+                    return wd;
+                }
+                return this.nextSheriffVoter();
             }
             case DAY_SPEAK: {
                 return this.currentSpeaker();
@@ -1312,10 +1576,18 @@ public class GameEngine {
             case GamePhase.NIGHT_CROW -> "CROW";
             case GamePhase.NIGHT_SILENCER -> "SILENCER";
             case GamePhase.SHOOT -> "SHOOT";
+            case GamePhase.SHERIFF_TRANSFER -> "SHERIFF_TRANSFER";
+            case GamePhase.SHERIFF_ORDER -> "SHERIFF_ORDER";
             case GamePhase.LAST_WORDS -> "LAST_WORDS";
             case GamePhase.SHERIFF_ELECTION -> {
                 if (this.sheriffSignupActive()) {
                     yield "SHERIFF_SIGNUP";
+                }
+                if (this.currentSheriffSpeaker() != 0) {
+                    yield "SPEECH";          // 竞选发言环节
+                }
+                if (this.currentSheriffWithdrawer() != 0) {
+                    yield "SHERIFF_WITHDRAW";   // 退水环节
                 }
                 yield "SHERIFF_VOTE";
             }
@@ -1335,14 +1607,17 @@ public class GameEngine {
         return this.phase == GamePhase.NIGHT_WOLF && this.bySeat.get(seat) != null && this.bySeat.get((Object)Integer.valueOf((int)seat)).alive && this.bySeat.get(seat).isWolf() && !this.wolvesActed.contains(seat);
     }
 
-    /** 白天阶段、该座位为存活且未自爆过的白狼王时，可发起自爆（供服务层/AI 作为附加可选动作）。 */
+    /** 白天阶段、存活狼人可发起自爆（白狼王每局限一次且自爆带走一人；普通狼人自爆不带人）。 */
     public boolean canBlowUp(int seat) {
         if (this.phase != GamePhase.DAY_SPEAK && this.phase != GamePhase.SHERIFF_ELECTION
                 && this.phase != GamePhase.DAY_VOTE) {
             return false;
         }
         Player p = this.bySeat.get(seat);
-        return p != null && p.alive && p.role == Role.WHITE_WOLF_KING && p.whiteWolfCanBlowUp;
+        if (p == null || !p.alive || !p.isWolf()) {
+            return false;
+        }
+        return p.role != Role.WHITE_WOLF_KING || p.whiteWolfCanBlowUp;
     }
 
     public int nextWolfToAct() {
@@ -1357,10 +1632,15 @@ public class GameEngine {
     }
 
     public int nextSheriffVoter() {
-        if (this.phase != GamePhase.SHERIFF_ELECTION || this.sheriffSignupActive() || this.sheriffCandidates.isEmpty()) {
+        if (this.phase != GamePhase.SHERIFF_ELECTION || this.sheriffSignupActive()
+                || this.sheriffSpeechActive() || this.sheriffWithdrawActive()
+                || this.sheriffCandidates.isEmpty()) {
             return 0;
         }
-        return this.alive().stream().map(p -> p.seat).filter(s -> !this.sheriffCandidates.contains(s) && !this.sheriffVotes.containsKey(s)).findFirst().orElse(0);
+        // 只有【从未上警】的存活玩家才有警长投票权（上过警或已退水者都不能投票）
+        return this.alive().stream().map(p -> p.seat)
+                .filter(s -> !this.sheriffSignups.contains(s) && !this.sheriffVotes.containsKey(s))
+                .findFirst().orElse(0);
     }
 
     public int nextExileVoter() {

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
+import 'i18n.dart';
 
 /// 开局身份牌翻牌揭示：牌背 → 3D 翻转 → 亮出阵营与角色。
 /// 由调用方保证**每局只播一次**（用 gameId 去重），播完或点击即关闭。
@@ -95,20 +96,20 @@ class _RoleRevealState extends State<RoleReveal> with SingleTickerProviderStateM
                         ? Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(_isWolf ? '🐺' : (_isGod ? '🌙' : '🧑'), style: const TextStyle(fontSize: 62)),
+                              Tx(_isWolf ? '🐺' : (_isGod ? '🌙' : '🧑'), style: const TextStyle(fontSize: 62)),
                               const SizedBox(height: 10),
-                              Text(_isWolf ? '狼人阵营' : (_isGod ? '神民阵营' : '好人阵营'),
+                              Tx(_isWolf ? '狼人阵营' : (_isGod ? '神民阵营' : '好人阵营'),
                                   style: TextStyle(color: _accent, fontSize: 15, letterSpacing: 2)),
                               const SizedBox(height: 6),
-                              Text(widget.role,
-                                  style: const TextStyle(color: kMoon, fontSize: 30, fontWeight: FontWeight.bold)),
+                              Tx(widget.role,
+                                  style: TextStyle(color: kMoon, fontSize: 30, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 14),
-                              Text('你是 ${widget.seat} 号 · 点击继续',
-                                  style: const TextStyle(color: kDim, fontSize: 12.5)),
+                              Tx('你是 ${widget.seat} 号 · 点击继续',
+                                  style: TextStyle(color: kDim, fontSize: 12.5)),
                             ],
                           )
                         : const Center(
-                            child: Text('🌙', style: TextStyle(fontSize: 58, color: Color(0xFF3A2F55))),
+                            child: Tx('🌙', style: TextStyle(fontSize: 58, color: Color(0xFF3A2F55))),
                           ),
                   ),
                 ),
@@ -160,7 +161,7 @@ class SettleReveal extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: color, width: 1.6),
             ),
-            child: Text(_wolfWin ? '🐺 狼人阵营胜利' : '🌅 好人阵营胜利',
+            child: Tx(_wolfWin ? '🐺 狼人阵营胜利' : '🌅 好人阵营胜利',
                 style: TextStyle(color: color, fontSize: 19, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           ),
         ),
@@ -200,7 +201,7 @@ class SettleReveal extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: c.withOpacity(.75)),
       ),
-      child: Text('$seat·$role${alive ? '' : '†'}',
+      child: Tx('$seat·$role${alive ? '' : '†'}',
           style: TextStyle(fontSize: 12.5, color: c, decoration: alive ? null : TextDecoration.lineThrough)),
     );
   }

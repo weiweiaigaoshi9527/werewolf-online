@@ -22,6 +22,8 @@ public enum GamePhase {
     SHERIFF_ELECTION,
     /** 遗言阶段 */
     LAST_WORDS,
+    /** 白天发言前：由警长决定从警左还是警右开始发言 */
+    SHERIFF_ORDER,
     /** 白天：依次发言 */
     DAY_SPEAK,
     /** 白天：放逐投票 */
@@ -30,6 +32,8 @@ public enum GamePhase {
     DAY_VOTE_TIEBREAK,
     /** 死亡触发开枪（猎人/狼王） */
     SHOOT,
+    /** 警长死亡后由警长本人决定：把警徽移交给某位存活玩家，或撕毁 */
+    SHERIFF_TRANSFER,
     /** 游戏结束 */
     GAME_OVER;
 

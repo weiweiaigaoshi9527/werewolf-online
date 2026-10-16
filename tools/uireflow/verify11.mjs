@@ -114,36 +114,6 @@ async function main() {
   try { await api('/api/game/end', 'POST'); } catch (_) {}
   try { await api('/api/room/leave', 'POST'); } catch (_) {}
 
-  /* --- 6：双人组队队友可见（重跑组队流） --- */
-  await ev(`document.querySelector('[data-route="lobby"]')?.click();'ok'`); await sleep(600);
-  await ev(`document.getElementById('btn-create-room').click();'ok'`); await sleep(1500);
-  await ev(`document.getElementById('duo-toggle').checked=true;document.getElementById('btn-save-mode').click();'ok'`); await sleep(900);
-  // 需要第二个真人 → 用同浏览器第二标签不行（同 localStorage），改走 API 模拟 B 的接受
-  const regB = await api('/api/auth/register', 'POST', { username: 'vb_' + Date.now().toString(36).slice(-5), password: 'ui123456', nickname: '队友小星' });
-  const tkB = regB.token;
-  const roomNo = (await api('/api/room/my')).room.roomNo;
-  await api('/api/room/join', 'POST', { roomNo }, ).catch(async () => await fetch(ORIGIN + '/api/room/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tkB }, body: JSON.stringify({ roomNo }) }));
-  // B join 需要用的 B token —— 上面的 api() 用了 A 的 token，重新用 B token join
-  await fetch(ORIGIN + '/api/room/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tkB }, body: JSON.stringify({ roomNo }) });
-  await sleep(800);
-  await api('/api/room/mode', 'POST', { voiceMode: false, anonymous: false, huntCity: false, duoMode: true });
-  const st = await api('/api/room/my');
-  const bUser = st.room.players.find(p => p.nickname === '队友小星');
-  await api('/api/room/duo/invite', 'POST', { targetUserId: bUser.userId });
-  await fetch(ORIGIN + '/api/room/duo/accept', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tkB }, body: JSON.stringify({ fromUserId: st.room.players.find(p => !p.ai && p.nickname !== '队友小星').userId }) });
-  await sleep(800);
-  for (let i = 0; i < 4; i++) { try { await api('/api/room/add-ai', 'POST'); } catch (_) {} await sleep(250); }
-  await api('/api/room/ready', 'POST', { ready: true });
-  await fetch(ORIGIN + '/api/room/ready', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tkB }, body: JSON.stringify({ ready: true }) });
-  await api('/api/game/start', 'POST');
-  await goto(ORIGIN + '/'); await sleep(3000);
-  const partner = await ev(`(()=>{const i=game.view&&game.view.myInfo;return i?JSON.stringify({partner:i.partner,teammates:i.teammates,faction:i.faction,shown:document.getElementById('my-detail').innerText.includes('队友')}):'no-view'})()`);
-  const pv = JSON.parse(partner);
-  check(pv.partner && pv.shown, '6. 双人组队：我的身份卡显示队友座位', partner);
-  try { await api('/api/game/end', 'POST'); } catch (_) {}
-  try { await api('/api/room/leave', 'POST'); } catch (_) {}
-  await fetch(ORIGIN + '/api/room/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tkB } }).catch(() => {});
-
   console.log('\n== 汇总 ==');
   console.table(results);
   console.log('运行期报错 ' + errors.length + ' 条');

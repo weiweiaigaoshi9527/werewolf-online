@@ -7,12 +7,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
     boolean existsByUsername(String username);
     boolean existsByNickname(String nickname);
+
+    /** 全部管理员（用于把「转人工」等客服事件实时推给后台）。 */
+    List<User> findByAdminTrue();
 
     /**
      * 原子签到：仅当今天尚未签到时，才累加金币/经验并更新连签天数与签到日期。

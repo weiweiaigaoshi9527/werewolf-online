@@ -13,6 +13,7 @@ import 'ranking.dart';
 import 'updates.dart';
 import 'tickets.dart';
 import 'replay.dart';
+import '../i18n.dart';
 
 /// 我的：资料 / 签到 / 战绩 / 流水 / 昵称 / 语音性别，并进入工单与复盘。
 class ProfileScreen extends StatefulWidget {
@@ -72,11 +73,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: kPanel,
-        title: const Text('修改昵称'),
-        content: TextField(controller: c, maxLength: 12, decoration: const InputDecoration(hintText: '新昵称')),
+        title: const Tx('修改昵称'),
+        content: TextField(controller: c, maxLength: 12, decoration: InputDecoration(hintText: tr('新昵称'))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('保存')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Tx('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Tx('保存')),
         ],
       ),
     );
@@ -101,7 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final need = (100 * math.pow(level.toDouble(), 1.5)).floor();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的'),
+        title: const Tx('我的'),
         actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
       ),
       body: StateBox(
@@ -118,19 +119,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Flexible(child: Text('${_p['nickname']}', style: const TextStyle(color: kMoon, fontSize: 17, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                        Flexible(child: Tx('${_p['nickname']}', style: TextStyle(color: kMoon, fontSize: 17, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
                         if ((_p['vipTitle'] ?? _p['title']) != null)
-                          Padding(padding: const EdgeInsets.only(left: 6), child: Text('${_p['vipTitle'] ?? _p['title']}', style: const TextStyle(color: kAccent, fontSize: 11))),
+                          Padding(padding: const EdgeInsets.only(left: 6), child: Tx('${_p['vipTitle'] ?? _p['title']}', style: TextStyle(color: kAccent, fontSize: 11))),
                       ]),
                       const SizedBox(height: 2),
-                      Text('@${_p['username']} · Lv.$level', style: const TextStyle(color: kDim, fontSize: 12.5)),
+                      Tx('@${_p['username']} · Lv.$level', style: TextStyle(color: kDim, fontSize: 12.5)),
                       const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(value: need == 0 ? 1 : (exp / need).clamp(0, 1), minHeight: 6, backgroundColor: kBg, valueColor: const AlwaysStoppedAnimation(kAccent)),
+                        child: LinearProgressIndicator(value: need == 0 ? 1 : (exp / need).clamp(0, 1), minHeight: 6, backgroundColor: kBg, valueColor: AlwaysStoppedAnimation(kAccent)),
                       ),
                       const SizedBox(height: 4),
-                      Text('💰 ${_p['gold'] ?? 0} 金币 · 经验 $exp/$need', style: const TextStyle(color: kDim, fontSize: 12)),
+                      Tx('💰 ${_p['gold'] ?? 0} 金币 · 经验 $exp/$need', style: TextStyle(color: kDim, fontSize: 12)),
                     ]),
                   ),
                 ]),
@@ -142,14 +143,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: FilledButton.icon(
                   onPressed: _checkedIn ? null : _checkin,
                   icon: const Icon(Icons.event_available),
-                  label: Text(_checkedIn ? '今日已签到' : '每日签到'),
+                  label: Tx(_checkedIn ? '今日已签到' : '每日签到'),
                   style: FilledButton.styleFrom(backgroundColor: _checkedIn ? kPanel2 : kAccent),
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(child: OutlinedButton.icon(onPressed: _editNickname, icon: const Icon(Icons.edit, size: 18), label: const Text('改昵称'))),
+              Expanded(child: OutlinedButton.icon(onPressed: _editNickname, icon: const Icon(Icons.edit, size: 18), label: const Tx('改昵称'))),
             ]),
-            if (_streak > 0) Padding(padding: const EdgeInsets.only(top: 6, left: 4), child: Text('已连续签到 $_streak 天', style: const TextStyle(color: kDim, fontSize: 12))),
+            if (_streak > 0) Padding(padding: const EdgeInsets.only(top: 6, left: 4), child: Tx('已连续签到 $_streak 天', style: TextStyle(color: kDim, fontSize: 12))),
             const SectionTitle('战绩'),
             Card(
               child: Padding(
@@ -188,16 +189,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ]),
             const SectionTitle('最近对局'),
             if (((_stats['recent'] as List?) ?? const []).isEmpty)
-              const Text('还没有对局记录', style: TextStyle(color: kDim, fontSize: 13))
+              Tx('还没有对局记录', style: TextStyle(color: kDim, fontSize: 13))
             else
               for (final r in ((_stats['recent'] as List?) ?? const []))
                 Card(
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   child: ListTile(
                     dense: true,
-                    title: Text('${r['role']} · ${r['faction'] == 'WOLF' ? '狼人' : '好人'}', style: const TextStyle(color: kMoon, fontSize: 14)),
-                    subtitle: Text('${r['won'] == true ? '胜利' : '失败'} · ${r['survived'] == true ? '存活' : '出局'}${r['mvp'] == true ? ' · MVP' : ''}', style: TextStyle(color: r['won'] == true ? kGreen : kDim, fontSize: 12)),
-                    trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReplayScreen(gameId: (r['gameId'] as num).toInt()))), child: const Text('复盘')),
+                    title: Tx('${r['role']} · ${r['faction'] == 'WOLF' ? '狼人' : '好人'}', style: TextStyle(color: kMoon, fontSize: 14)),
+                    subtitle: Tx('${r['won'] == true ? '胜利' : '失败'} · ${r['survived'] == true ? '存活' : '出局'}${r['mvp'] == true ? ' · MVP' : ''}', style: TextStyle(color: r['won'] == true ? kGreen : kDim, fontSize: 12)),
+                    trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReplayScreen(gameId: (r['gameId'] as num).toInt()))), child: const Tx('复盘')),
                   ),
                 ),
           ],
@@ -209,14 +210,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _statRow(String l1, String v1, String l2, String v2) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
-          Expanded(child: Column(children: [Text(v1, style: const TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)), Text(l1, style: const TextStyle(color: kDim, fontSize: 12))])),
-          Expanded(child: Column(children: [Text(v2, style: const TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)), Text(l2, style: const TextStyle(color: kDim, fontSize: 12))])),
+          Expanded(child: Column(children: [Tx(v1, style: TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)), Tx(l1, style: TextStyle(color: kDim, fontSize: 12))])),
+          Expanded(child: Column(children: [Tx(v2, style: TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)), Tx(l2, style: TextStyle(color: kDim, fontSize: 12))])),
         ]),
       );
 
   Widget _quick(BuildContext context, String label, IconData icon, VoidCallback onTap) => ActionChip(
         avatar: Icon(icon, size: 18, color: kAccent),
-        label: Text(label, style: const TextStyle(color: kText)),
+        label: Tx(label, style: TextStyle(color: kText)),
         backgroundColor: kPanel2,
         onPressed: onTap,
       );
@@ -242,14 +243,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           controller: ctrl,
           padding: const EdgeInsets.all(14),
           children: [
-            const Text('金币流水', style: TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
+            Tx('金币流水', style: TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             for (final t in list)
               ListTile(
                 dense: true,
-                title: Text('${t['reason']}', style: const TextStyle(color: kText, fontSize: 13)),
-                subtitle: Text('${(t['time'] ?? '').toString().substring(0, 16).replaceFirst('T', ' ')} · 余额 ${t['balanceAfter']}', style: const TextStyle(color: kDim, fontSize: 11)),
-                trailing: Text('${(t['delta'] as num) > 0 ? '+' : ''}${t['delta']}', style: TextStyle(color: (t['delta'] as num) >= 0 ? kGreen : kBlood, fontWeight: FontWeight.bold)),
+                title: Tx('${t['reason']}', style: TextStyle(color: kText, fontSize: 13)),
+                subtitle: Tx('${(t['time'] ?? '').toString().substring(0, 16).replaceFirst('T', ' ')} · 余额 ${t['balanceAfter']}', style: TextStyle(color: kDim, fontSize: 11)),
+                trailing: Tx('${(t['delta'] as num) > 0 ? '+' : ''}${t['delta']}', style: TextStyle(color: (t['delta'] as num) >= 0 ? kGreen : kBlood, fontWeight: FontWeight.bold)),
               ),
           ],
         ),

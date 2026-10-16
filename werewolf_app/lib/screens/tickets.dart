@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 工单：提交问题 / 建议 / 举报，查看我的工单与回复。
 class TicketsScreen extends StatefulWidget {
@@ -46,13 +47,13 @@ class _TicketsScreenState extends State<TicketsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('工单')),
+      appBar: AppBar(title: const Tx('工单')),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: kAccent,
         foregroundColor: const Color(0xFF1A1206),
         onPressed: _create,
         icon: const Icon(Icons.add),
-        label: const Text('提交工单'),
+        label: const Tx('提交工单'),
       ),
       body: StateBox(
         loading: _loading,
@@ -67,10 +68,10 @@ class _TicketsScreenState extends State<TicketsScreen> {
                 Card(
                   margin: const EdgeInsets.symmetric(vertical: 5),
                   child: ListTile(
-                    leading: CircleAvatar(backgroundColor: kPanel2, child: Text('#${t['id']}', style: const TextStyle(color: kDim, fontSize: 12))),
-                    title: Text('${t['title'] ?? t['category']}', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-                    subtitle: Text('${t['category']} · ${statusText[t['status']] ?? t['status']}', style: const TextStyle(color: kDim, fontSize: 12)),
-                    trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => _TicketDetail(id: (t['id'] as num).toInt()))), child: const Text('查看')),
+                    leading: CircleAvatar(backgroundColor: kPanel2, child: Tx('#${t['id']}', style: TextStyle(color: kDim, fontSize: 12))),
+                    title: Tx('${t['title'] ?? t['category']}', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                    subtitle: Tx('${t['category']} · ${statusText[t['status']] ?? t['status']}', style: TextStyle(color: kDim, fontSize: 12)),
+                    trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => _TicketDetail(id: (t['id'] as num).toInt()))), child: const Tx('查看')),
                   ),
                 ),
             ],
@@ -101,19 +102,19 @@ class _CreateTicketSheetState extends State<_CreateTicketSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('提交工单', style: TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
+          Tx('提交工单', style: TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: _cat,
             dropdownColor: kPanel,
-            decoration: const InputDecoration(labelText: '类型'),
-            items: const ['问题', '建议', '举报', '其他'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+            decoration: InputDecoration(labelText: tr('类型')),
+            items: const ['问题', '建议', '举报', '其他'].map((c) => DropdownMenuItem(value: c, child: Tx(c))).toList(),
             onChanged: (v) => setState(() => _cat = v ?? _cat),
           ),
           const SizedBox(height: 10),
-          TextField(controller: _title, decoration: const InputDecoration(labelText: '标题（可选）')),
+          TextField(controller: _title, decoration: InputDecoration(labelText: tr('标题（可选）'))),
           const SizedBox(height: 10),
-          TextField(controller: _content, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: '内容')),
+          TextField(controller: _content, minLines: 3, maxLines: 6, decoration: InputDecoration(labelText: tr('内容'))),
           const SizedBox(height: 14),
           FilledButton(
             onPressed: () async {
@@ -132,7 +133,7 @@ class _CreateTicketSheetState extends State<_CreateTicketSheet> {
                 if (context.mounted) snack(context, e.message, error: true);
               }
             },
-            child: const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Text('提交')),
+            child: const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Tx('提交')),
           ),
         ],
       ),
@@ -186,7 +187,7 @@ class _TicketDetailState extends State<_TicketDetail> {
   Widget build(BuildContext context) {
     final thread = (_t['thread'] as List?) ?? const [];
     return Scaffold(
-      appBar: AppBar(title: Text('工单 #${widget.id}')),
+      appBar: AppBar(title: Tx('工单 #${widget.id}')),
       body: StateBox(
         loading: _loading,
         child: Column(
@@ -195,11 +196,11 @@ class _TicketDetailState extends State<_TicketDetail> {
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
-                  Text('${_t['title'] ?? _t['category']}', style: const TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Tx('${_t['title'] ?? _t['category']}', style: TextStyle(color: kMoon, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('${_t['category']} · 状态 ${_t['status']} · ${(_t['at'] ?? '').toString().substring(0, 16).replaceFirst('T', ' ')}', style: const TextStyle(color: kDim, fontSize: 12)),
+                  Tx('${_t['category']} · 状态 ${_t['status']} · ${(_t['at'] ?? '').toString().substring(0, 16).replaceFirst('T', ' ')}', style: TextStyle(color: kDim, fontSize: 12)),
                   const SizedBox(height: 10),
-                  Text('${_t['content']}', style: const TextStyle(color: kText, height: 1.5)),
+                  Tx('${_t['content']}', style: TextStyle(color: kText, height: 1.5)),
                   const SectionTitle('回复记录'),
                   for (final r in thread)
                     Container(
@@ -207,9 +208,9 @@ class _TicketDetailState extends State<_TicketDetail> {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(color: kPanel, borderRadius: BorderRadius.circular(10), border: Border.all(color: kBorder)),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('${r['author']}${r['admin'] == true ? '（官方）' : ''}', style: TextStyle(color: r['admin'] == true ? kAccent : kDim, fontSize: 12)),
+                        Tx('${r['author']}${r['admin'] == true ? '（官方）' : ''}', style: TextStyle(color: r['admin'] == true ? kAccent : kDim, fontSize: 12)),
                         const SizedBox(height: 4),
-                        Text('${r['content']}', style: const TextStyle(color: kText)),
+                        Tx('${r['content']}', style: TextStyle(color: kText)),
                       ]),
                     ),
                 ],
@@ -220,7 +221,7 @@ class _TicketDetailState extends State<_TicketDetail> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
                 child: Row(children: [
-                  Expanded(child: TextField(controller: _reply, decoration: const InputDecoration(hintText: '补充回复…', isDense: true), onSubmitted: (_) => _send())),
+                  Expanded(child: TextField(controller: _reply, decoration: InputDecoration(hintText: tr('补充回复…'), isDense: true), onSubmitted: (_) => _send())),
                   const SizedBox(width: 8),
                   IconButton.filled(onPressed: _send, icon: const Icon(Icons.send), style: IconButton.styleFrom(backgroundColor: kAccent), color: const Color(0xFF1A1206)),
                 ]),

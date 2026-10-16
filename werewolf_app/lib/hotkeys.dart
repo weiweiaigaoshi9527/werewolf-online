@@ -16,7 +16,16 @@ enum HotkeyAction {
   /// 聚焦对局聊天输入框（网页版按 F）。
   focusChat,
 
-  /// 开 / 关麦克风。本端没有网页版的「座位标记」子系统，M 改用于语音按钮。
+  /// 循环推进「我下一位玩家」的座位标记（疑 → 好 → 狼 → 未标，网页版按 M）。
+  cycleMark,
+
+  /// 随机换一个主题（网页版按 T）。
+  randomTheme,
+
+  /// 切换紧凑 / 舒适密度（网页版按 D）。
+  toggleDensity,
+
+  /// 开 / 关麦克风（网页版没有这个快捷键，本端为桌面端补的 V）。
   mic,
 
   /// 打开快捷键帮助（? 或 Shift+/）。
@@ -48,7 +57,7 @@ class HotkeyHit {
 /// 2. 正在输入（input/textarea/select）时所有快捷键一律不生效；
 /// 3. `?` 或 `Shift+/` → 帮助；
 /// 4. `a` → 仅当能行动且存在「放弃」入口时过麦；
-/// 5. `f` → 聚焦聊天框；`m` → 麦克风；
+/// 5. `f` → 聚焦聊天框；`m` → 循环座位标记；`t` → 随机主题；`d` → 切换密度；`v` → 麦克风；
 /// 6. `1`..`9` → 目标下标 0..8；`0` → 目标下标 9；越界或不满足则 null；
 /// 7. 其它键 → null。
 ///
@@ -86,7 +95,11 @@ HotkeyHit? hotkeyFor({
 
   // 5. 全局可用，不受 canAct 门控。
   if (k == 'f') return const HotkeyHit(HotkeyAction.focusChat);
-  if (k == 'm') return const HotkeyHit(HotkeyAction.mic);
+  if (k == 'm') return const HotkeyHit(HotkeyAction.cycleMark);
+  if (k == 't') return const HotkeyHit(HotkeyAction.randomTheme);
+  if (k == 'd') return const HotkeyHit(HotkeyAction.toggleDensity);
+  // V 是本端专有：网页版没有麦克风快捷键，桌面端补一个（M 已被座位标记占用）。
+  if (k == 'v') return const HotkeyHit(HotkeyAction.mic);
 
   // 6. 目标选择：1..9 → 下标 0..8；0 → 下标 9。
   if (k.length == 1) {
@@ -116,15 +129,16 @@ class HotkeyHelp {
 
 /// 快捷键帮助文案（中文）。
 ///
-/// 末尾两项显式标注「网页独有、本端不适用」的项：主题（T）/ 密度（D）/ 座位标记（网页版 M），
-/// 因为 Flutter 端没有对应子系统，故不实现 T / D，并把 M 复用为麦克风开关。
+/// 与网页版 ux.js 的 HOTKEYS 一一对应，仅一处本端差异：麦克风是本端专有的 V
+/// （网页版没有麦克风快捷键，M 被座位标记占用）。主题 T / 密度 D 已在 P2 接入外观子系统。
 const List<HotkeyHelp> hotkeyHelp = [
   HotkeyHelp('1 – 9 / 0', '对局中按序号选择目标按钮（第 10 个用 0）'),
   HotkeyHelp('A', '快速过麦（放弃本次发言 / 投票）'),
+  HotkeyHelp('M', '循环切换我下一位玩家的座位标记（疑 → 好 → 狼 → 未标）'),
   HotkeyHelp('F', '聚焦对局聊天输入框'),
-  HotkeyHelp('M', '开 / 关麦克风'),
+  HotkeyHelp('T', '随机换一个主题（外观面板同款）'),
+  HotkeyHelp('D', '切换紧凑 / 舒适密度'),
+  HotkeyHelp('V', '开 / 关麦克风（本端快捷键，网页版无）'),
   HotkeyHelp('?', '打开本帮助'),
   HotkeyHelp('Esc', '关闭弹窗 / 浮层（由系统处理）'),
-  HotkeyHelp('T / D', '网页版：随机主题 / 切换密度（本端无此子系统，不适用）'),
-  HotkeyHelp('M（网页版）', '网页版：循环座位标记（本端无标记子系统，不适用）'),
 ];

@@ -50,6 +50,8 @@ public class DedupEngineTest {
                 case LAST_WORDS -> g.submitLastWords(g.currentLastWords(), "（遗言）");
                 case SHERIFF_ELECTION -> {
                     if (g.sheriffSignupActive()) g.submitSheriffSignup(g.sheriffSignupCursor(), rp.sheriffSignup(g, g.bySeat(g.sheriffSignupCursor()), rnd));
+                    else if (g.sheriffSpeechActive()) g.submitSpeech(g.currentSheriffSpeaker(), "（竞选发言）");
+                    else if (g.sheriffWithdrawActive()) g.submitSheriffWithdraw(g.currentSheriffWithdrawer(), rp.sheriffWithdraw(g, g.bySeat(g.currentSheriffWithdrawer()), rnd));
                     else {
                         int voter = g.nextSheriffVoter();
                         if (voter == 0) return g;

@@ -50,9 +50,12 @@ public class Room {
     @Column(name = "item_match", nullable = false, columnDefinition = "boolean default true")
     private boolean itemMatch = true;
 
-    /** 双人组队模式：开启后玩家可互相发起组队邀请，同队成员保证同阵营。 */
-    @Column(name = "duo_mode", nullable = false, columnDefinition = "boolean default false")
-    private boolean duoMode = false;
+    /**
+     * 全 AI 队局（观战房）：整局全部由 AI 出战，真人只能观战、不能入座。
+     * 该房的对局结束后会自动续开下一局（只要还有人在房间内观看）。
+     */
+    @Column(name = "ai_only", nullable = false, columnDefinition = "boolean default false")
+    private boolean aiOnly = false;
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -93,8 +96,8 @@ public class Room {
     public boolean isItemMatch() { return itemMatch; }
     public void setItemMatch(boolean itemMatch) { this.itemMatch = itemMatch; }
 
-    public boolean isDuoMode() { return duoMode; }
-    public void setDuoMode(boolean duoMode) { this.duoMode = duoMode; }
+    public boolean isAiOnly() { return aiOnly; }
+    public void setAiOnly(boolean aiOnly) { this.aiOnly = aiOnly; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

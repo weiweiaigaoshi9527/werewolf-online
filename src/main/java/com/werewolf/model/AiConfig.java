@@ -12,6 +12,9 @@ public class AiConfig {
     @Column(length = 256)
     private String baseUrl;              // OpenAI 兼容服务地址
 
+    @Column(length = 256)
+    private String proxyUrl;             // 可选：调用 AI 时走的 HTTP 代理（如 http://127.0.0.1:3067）；留空=直连
+
     @Column(length = 512)
     private String apiKeyEnc;            // AES 加密存储
 
@@ -37,6 +40,8 @@ public class AiConfig {
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public String getApiKeyEnc() { return apiKeyEnc; }
     public void setApiKeyEnc(String apiKeyEnc) { this.apiKeyEnc = apiKeyEnc; }
+    public String getProxyUrl() { return proxyUrl; }
+    public void setProxyUrl(String proxyUrl) { this.proxyUrl = proxyUrl; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
     public String getDepth() { return depth; }

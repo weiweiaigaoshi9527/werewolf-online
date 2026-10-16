@@ -38,6 +38,16 @@ public class RoomMembership {
         return Collections.unmodifiableSet(members.getOrDefault(roomId, Set.of()));
     }
 
+    /**
+     * 反查某用户当前所在（或正在观战）的全部房间 id。
+     * 观战者没有座位记录，无法用 RoomPlayer 反查，只能靠这里的成员索引。
+     */
+    public Set<Long> roomsOf(long userId) {
+        Set<Long> out = new java.util.LinkedHashSet<>();
+        members.forEach((rid, s) -> { if (s.contains(userId)) out.add(rid); });
+        return out;
+    }
+
     public void clearRoom(long roomId) {
         members.remove(roomId);
     }

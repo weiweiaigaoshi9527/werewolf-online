@@ -7,6 +7,7 @@ import 'shop.dart';
 import 'vip.dart';
 import 'friends.dart';
 import 'profile.dart';
+import '../i18n.dart';
 
 /// 登录后的主框架：底部导航切换 大厅 / 商店 / 会员 / 好友 / 我的，与网页端功能对齐。
 class HomeShell extends StatefulWidget {
@@ -42,25 +43,26 @@ class _HomeShellState extends State<HomeShell> {
           if (i == 3) store.refreshUnread(); // 进好友页即拉一次权威未读数
         },
         destinations: [
-          const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '大厅'),
-          const NavigationDestination(
-              icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: '商店'),
-          const NavigationDestination(
-              icon: Icon(Icons.workspace_premium_outlined),
-              selectedIcon: Icon(Icons.workspace_premium),
-              label: '会员'),
-          NavigationDestination(
+         NavigationDestination(
+              icon: const Icon(Icons.home_outlined), selectedIcon: const Icon(Icons.home), label: tr('大厅')),
+         NavigationDestination(
+              icon: const Icon(Icons.storefront_outlined), selectedIcon: const Icon(Icons.storefront), label: tr('商店')),
+         NavigationDestination(
+              icon: const Icon(Icons.workspace_premium_outlined),
+              selectedIcon: const Icon(Icons.workspace_premium),
+              label: tr('会员')),
+         NavigationDestination(
             icon: Badge(
               isLabelVisible: unread > 0,
               backgroundColor: kBlood,
-              label: Text(unread > 99 ? '99+' : '$unread'),
+              label: Tx(unread > 99 ? '99+' : '$unread'),
               child: const Icon(Icons.people_outline),
             ),
             selectedIcon: const Icon(Icons.people),
-            label: '好友',
+            label: tr('好友'),
           ),
-          const NavigationDestination(
-              icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: '我的'),
+         NavigationDestination(
+              icon: const Icon(Icons.person_outline), selectedIcon: const Icon(Icons.person), label: tr('我的')),
         ],
       ),
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../store.dart';
 import '../theme.dart';
+import '../i18n.dart';
 
 /// 各屏共用的轻量辅助：错误提示、分区标题、信息行、头像 emoji。
 
@@ -27,7 +28,7 @@ String? resolveAvatarUrl(BuildContext context, String? raw) {
 
 void snack(BuildContext context, String msg, {bool error = false}) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: TextStyle(color: error ? kBlood : kText)),
+    content: Tx(msg, style: TextStyle(color: error ? kBlood : kText)),
     backgroundColor: kPanel2,
     behavior: SnackBarBehavior.floating,
   ));
@@ -50,7 +51,7 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(2, 18, 2, 8),
-        child: Text(text, style: const TextStyle(color: kDim, letterSpacing: 2, fontSize: 13)),
+        child: Tx(text, style: TextStyle(color: kDim, letterSpacing: 2, fontSize: 13)),
       );
 }
 
@@ -66,9 +67,9 @@ class InfoRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(width: 96, child: Text(label, style: const TextStyle(color: kDim, fontSize: 13))),
+            SizedBox(width: 96, child: Tx(label, style: TextStyle(color: kDim, fontSize: 13))),
             Expanded(
-                child: Text(value,
+                child: Tx(value,
                     style: TextStyle(color: valueColor ?? kText, fontSize: 13.5, height: 1.4))),
           ],
         ),
@@ -88,8 +89,8 @@ class WwAvatar extends StatelessWidget {
     final url = resolveAvatarUrl(context, avatarUrl);
     final inner = (url != null)
         ? ClipOval(child: Image.network(url, width: size - 8, height: size - 8, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Text(avatarEmoji(avatarId), style: TextStyle(fontSize: size * 0.5))))
-        : Text(avatarEmoji(avatarId), style: TextStyle(fontSize: size * 0.5));
+            errorBuilder: (_, __, ___) => Tx(avatarEmoji(avatarId), style: TextStyle(fontSize: size * 0.5))))
+        : Tx(avatarEmoji(avatarId), style: TextStyle(fontSize: size * 0.5));
     return Container(
       width: size,
       height: size,
@@ -122,9 +123,9 @@ class StateBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator(color: kAccent)));
-    if (error != null) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(error!, style: const TextStyle(color: kBlood))));
-    if (empty) return Center(child: Padding(padding: const EdgeInsets.all(48), child: Text(emptyText, style: const TextStyle(color: kDim))));
+    if (loading) return Center(child: Padding(padding: const EdgeInsets.all(48), child: CircularProgressIndicator(color: kAccent)));
+    if (error != null) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Tx(error!, style: TextStyle(color: kBlood))));
+    if (empty) return Center(child: Padding(padding: const EdgeInsets.all(48), child: Tx(emptyText, style: TextStyle(color: kDim))));
     return child;
   }
 }

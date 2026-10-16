@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../api.dart';
+import '../i18n.dart';
 import '../store.dart';
 import '../theme.dart';
 
@@ -44,10 +45,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('狼人杀'),
+        title: const Tx('狼人杀'),
         actions: [
+          const LangButton(),
           IconButton(
-            tooltip: '服务器设置',
+            tooltip: tr('服务器设置'),
             icon: const Icon(Icons.dns),
             onPressed: () {
               context.read<AppStore>().clearServer();
@@ -76,27 +78,27 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ]),
                     const SizedBox(height: 18),
-                    TextField(controller: _user, decoration: const InputDecoration(labelText: '用户名')),
+                    TextField(controller: _user, decoration: InputDecoration(labelText: tr('用户名'))),
                     const SizedBox(height: 12),
                     TextField(
                         controller: _pass,
                         obscureText: true,
-                        decoration: const InputDecoration(labelText: '密码')),
+                        decoration: InputDecoration(labelText: tr('密码'))),
                     if (_register) ...[
                       const SizedBox(height: 12),
-                      TextField(controller: _nick, decoration: const InputDecoration(labelText: '昵称（可留空）')),
+                      TextField(controller: _nick, decoration: InputDecoration(labelText: tr('昵称（可留空）'))),
                     ],
                     if (_err.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
-                        child: Text(_err, style: const TextStyle(color: kBlood)),
+                        child: Tx(_err, style: TextStyle(color: kBlood)),
                       ),
                     const SizedBox(height: 18),
                     ElevatedButton(
                       onPressed: _busy ? null : _submit,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Text(_busy ? '请稍候…' : (_register ? '缔结契约' : '进入村庄'), style: const TextStyle(fontSize: 16)),
+                        child: Tx(_busy ? '请稍候…' : (_register ? '缔结契约' : '进入村庄'), style: const TextStyle(fontSize: 16)),
                       ),
                     ),
                   ],
@@ -119,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: active ? kAccent : kBorder),
         ),
-        child: Text(label,
+        child: Tx(label,
             textAlign: TextAlign.center,
             style: TextStyle(
                 color: active ? const Color(0xFF1A1206) : kDim, fontWeight: FontWeight.bold, letterSpacing: 2)),

@@ -12,7 +12,7 @@ import 'package:werewolf_app/theme.dart';
 
 import 'fixtures/server_views.dart';
 
-/// 等待室页面的渲染回归：房主管理入口、四个模式开关、双人组队条。
+/// 等待室页面的渲染回归：房主管理入口、三个模式开关。
 /// 全部用 test/fixtures 里的真实视图快照驱动，不碰网络。
 void main() {
   /// 视觉基线只在显式要求时参与断言/产图：
@@ -23,7 +23,7 @@ void main() {
     await expectLater(find.byType(RoomScreen), matchesGoldenFile('goldens/$name.png'));
   }
 
-  AppStore buildStore({required bool host, bool duoMode = false, List<List<int>>? duos}) {
+  AppStore buildStore({required bool host}) {
     SharedPreferences.setMockInitialValues({});
     final store = AppStore(ApiClient(ServerConfig(baseUrl: 'https://unit.test.invalid:11111')));
     store.user = {
@@ -32,7 +32,7 @@ void main() {
       'nickname': '三端自测',
     };
     // maxSeats 收到 8：GridView 只布局视口内的子项，24 座时 6 号座位压根没被 build 出来。
-    store.room = roomView(duoMode: duoMode, duos: duos, maxSeats: 8);
+    store.room = roomView(maxSeats: 8);
     return store;
   }
 
@@ -48,11 +48,10 @@ void main() {
       // 这里只锁布局结构与开关/按钮的有无，文字正确性由语义断言 + 真机截图负责。
       child: MaterialApp(theme: werewolfTheme(), home: const RoomScreen()),
     ));
-    // 用 pump 而不是 pumpAndSettle：duo 开启时页面挂着 2 秒轮询定时器，settle 不会收敛。
     await tester.pump(const Duration(milliseconds: 200));
   }
 
-  testWidgets('房主看到板子与四个模式开关（含猎城、双人组队）', (tester) async {
+  testWidgets('房主看到板子与三个模式开关（含猎城）', (tester) async {
     final store = buildStore(host: true);
     await pumpRoom(tester, store);
 
@@ -61,7 +60,6 @@ void main() {
     expect(find.text('语音同传（匿名伪装以藏 AI）'), findsOneWidget);
     expect(find.text('匿名模式（隐藏真实昵称）'), findsOneWidget);
     expect(find.text('猎城规则（狼人数量达标直接判胜）'), findsOneWidget);
-    expect(find.text('双人组队（结队者同阵营）'), findsOneWidget);
     expect(find.text('功能道具赛（携带道具本局生效）'), findsOneWidget);
     expect(find.text('配置板子'), findsOneWidget);
     expect(find.text('开始游戏'), findsOneWidget);
@@ -96,29 +94,5 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('把 阿尔法（6号）移出房间？'), findsOneWidget);
     expect(find.text('取消'), findsOneWidget);
-  });
-
-  testWidgets('开启双人组队后出现状态条与座位上的组队入口', (tester) async {
-    final store = buildStore(host: true, duoMode: true, duos: const []);
-    await pumpRoom(tester, store);
-
-    expect(find.textContaining('双人组队已开启'), findsOneWidget);
-    // 其他真人座位（6 号）应有「组队」按钮；AI 座位不给组队入口
-    expect(find.text('组队'), findsOneWidget);
-    expect(find.text('解除我的队伍'), findsNothing);
-  });
-
-  testWidgets('已在队内时显示所在对子并可解除', (tester) async {
-    final store = buildStore(host: true, duoMode: true);
-    // duoMode 打开时 fixture 会把 [[1,6]] 作为已成的对子下发（1 号就是房主本人）
-    await pumpRoom(tester, store);
-    expect(store.mySeat, 1);
-    expect(store.duoPairOfMine(), [1, 6]);
-    expect(find.textContaining('已组队 1 对'), findsOneWidget);
-    expect(find.text('解除我的队伍'), findsOneWidget);
-    // 6 号就是我的队友：座位上给「解除」，不再给「组队」邀请
-    expect(find.text('解除'), findsOneWidget);
-    expect(find.text('组队'), findsNothing);
-    await maybeGolden(tester, 'room_host_duo');
   });
 }

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'config.dart';
+import 'marks.dart' as mk;
 import 'models.dart';
 import 'sfx.dart';
 import 'voice.dart';
@@ -20,6 +22,13 @@ class AppStore extends ChangeNotifier {
   bool wsConnected = false;
   bool busy = false;
   String maintenance = ''; // 系统维护通知（底部横幅），与网页端一致
+  /// 管理员设置的展示配置：内容区最大高度百分比（0 = 不限）。
+  /// 来自匿名可读的 GET /api/config/display，与网页端 --app-max-h 等价。
+  int displayMaxHeight = 0;
+  /// 语音服务是否就绪（GET /api/voice/status：开关打开且 ASR/TTS 都健康）。
+  bool voiceServiceReady = false;
+  /// 座位标记（本地、仅自己可见、按房间持久化）：座位号 → 等级 0..3（未标/可疑/好人/狼人）。
+  Map<int, int> marks = const {};
 
   // ---------- 语音通道 ----------
   VoiceClient? voice;
@@ -61,6 +70,55 @@ class AppStore extends ChangeNotifier {
     voice = null;
     voiceCaptions.clear();
     talkingName = null;
+  }
+
+  // ---------- 座位标记（本地、仅自己可见、按房间持久化） ----------
+  /// 已载入标记的房间号；只有与目标房间号不同才重新读盘，避免每次 room.state
+  /// 推送都刷一遍存储。房间为 null 时清空。
+  String _marksRoom = '';
+
+  Future<void> _syncMarks(String? roomNo) async {
+    final want = roomNo ?? '';
+    if (want == _marksRoom) return;
+    _marksRoom = want;
+    if (want.isEmpty) {
+      marks = const {};
+      notifyListeners();
+      return;
+    }
+    try {
+      final p = await SharedPreferences.getInstance();
+      marks = mk.parseMarks(p.getString(mk.marksKey(want)));
+    } catch (_) {
+      marks = const {};
+    }
+    notifyListeners();
+  }
+
+  /// 循环推进某座位的标记并落盘（与网页版 MARK.cycle 同语义）。
+  Future<void> cycleMark(int seat) async {
+    marks = {...marks, seat: mk.cycleMark(marks[seat])};
+    notifyListeners();
+    await _saveMarks();
+  }
+
+  Future<void> clearMarks() async {
+    marks = const {};
+    notifyListeners();
+    await _saveMarks();
+  }
+
+  Future<void> _saveMarks() async {
+    if (_marksRoom.isEmpty) return;
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = mk.encodeMarks(marks);
+      if (raw.isEmpty) {
+        await p.remove(mk.marksKey(_marksRoom));
+      } else {
+        await p.setString(mk.marksKey(_marksRoom), raw);
+      }
+    } catch (_) {}
   }
 
   Future<bool> startMic() async => voice?.startMic() ?? false;
@@ -108,6 +166,8 @@ class AppStore extends ChangeNotifier {
     fetchMaintenance();
     refreshUnread();
     loadFeatures();
+    loadDisplay();
+    loadVoiceStatus();
 
     notifyListeners();
     return token != null;
@@ -136,7 +196,7 @@ class AppStore extends ChangeNotifier {
   /// 管理员关闭的功能 id 集合。来自 GET /api/config/features 的 `{"disabled":[...]}`——
   /// 注意它是「被关闭 id 的数组」而不是布尔映射，**不在数组里就是启用**。
   /// 合法 id：quickai spectate shop friends forum ranking checkin news tickets
-  /// download guide voiceMode duo items invite addai
+  /// download guide voiceMode items invite addai aiShow
   List<String> disabledFeatures = const [];
 
   bool feat(String id) => !disabledFeatures.contains(id);
@@ -151,6 +211,33 @@ class AppStore extends ChangeNotifier {
     } on AppError {
       disabledFeatures = const [];
     }
+  }
+
+  /// 管理员设置的展示配置（匿名可读）。webMaxHeight 为内容区最大高度的百分比 0-100，
+  /// 0 表示不限。与网页端 nav.js 的 --app-max-h 等价。
+  Future<void> loadDisplay() async {
+    try {
+      final v = await api.get('/api/config/display');
+      final h = (v['webMaxHeight'] as num?)?.toInt() ?? 0;
+      displayMaxHeight = h.clamp(0, 100);
+      notifyListeners();
+    } on AppError {
+      displayMaxHeight = 0;
+    }
+  }
+
+  /// 语音服务就绪状态：开关打开且 ASR / TTS 都健康才认为可用。
+  /// 网页端同样在进房前拉一次，未就绪时明确提示「语音服务未就绪」，而不是等用户点麦才报错。
+  Future<void> loadVoiceStatus() async {
+    try {
+      final s = await api.get('/api/voice/status');
+      final asr = ((s['health'] as Map?)?['asr'] as Map?)?['ok'] == true;
+      final tts = ((s['health'] as Map?)?['tts'] as Map?)?['ok'] == true;
+      voiceServiceReady = s['allowVoiceMode'] == true && asr && tts;
+    } on AppError {
+      voiceServiceReady = false;
+    }
+    notifyListeners();
   }
 
   /// 兑换码：成功返回兑换后的金币余额，失败抛 AppError（服务端文案已很具体）。
@@ -170,11 +257,14 @@ class AppStore extends ChangeNotifier {
       fetchMaintenance();
       refreshUnread();
       loadFeatures();
+      loadDisplay();
+      loadVoiceStatus();
 
       final my = await api.get('/api/room/my');
       final r = my['room'];
       if (r is Map<String, dynamic> && r['roomNo'] != null) {
         room = r;
+        await _syncMarks('${r['roomNo']}');
         if (r['status'] == 'PLAYING') {
           try {
             game = await api.get('/api/game/state');
@@ -216,7 +306,9 @@ class AppStore extends ChangeNotifier {
         } else {
           room = null;
           roomFeed.clear();
+          wolfChat.clear();
         }
+        unawaited(_syncMarks(room == null ? null : '${room!['roomNo']}'));
         break;
       case 'room.left':
       case 'room.kicked':
@@ -224,6 +316,8 @@ class AppStore extends ChangeNotifier {
         game = null;
         roomFeed.clear();
         gameChat.clear();
+        wolfChat.clear();
+        unawaited(_syncMarks(null));
         _closeVoice();
         if (m['type'] == 'room.kicked') {
           _notify('${m['message'] ?? '你被移出房间'}', kind: 'warn');
@@ -245,6 +339,7 @@ class AppStore extends ChangeNotifier {
       case 'game.ended':
         game = null; // 随后 room.state 会把房间复位到等待中
         gameChat.clear();
+        wolfChat.clear();
         _closeVoice();
         break;
       case 'game.chat':
@@ -256,6 +351,15 @@ class AppStore extends ChangeNotifier {
           kind: 'chat',
         ));
         _cap(gameChat, 200);
+        break;
+      case 'game.wolfchat': // 狼队频道：消息只推给存活的狼，不写入对局记录
+        wolfChat.add(WwChatLine(
+          name: '${m['name'] ?? ''}',
+          text: '${m['text'] ?? ''}',
+          seat: (m['seat'] as num?)?.toInt(),
+          kind: 'wolf',
+        ));
+        _cap(wolfChat, 200);
         break;
       case 'narrator': // 旁白（夜晚结算等），只走 WS 不进 feed
         gameChat.add(WwChatLine(name: '${m['name'] ?? '旁白'}', text: '${m['text'] ?? ''}', kind: 'narrator'));
@@ -277,6 +381,12 @@ class AppStore extends ChangeNotifier {
         break;
       case 'ticket.update':
         _notify('工单 #${m['id'] ?? ''} 状态更新：${_ticketStatus('${m['status'] ?? ''}')}', kind: 'info');
+        break;
+      case 'support.update': // 在线客服有新回复：不打扰用户，只给面板一个刷新信号
+        supportTick++;
+        break;
+      case 'support.escalated': // 该事件只发给管理员：有人请求转人工
+        _notify('有玩家请求人工客服（工单 #${m['ticketId'] ?? ''}）', kind: 'warn');
         break;
       case 'welcome':
         final msg = m['message'];
@@ -337,7 +447,11 @@ class AppStore extends ChangeNotifier {
   final List<WwNotice> notices = [];
   final List<String> roomFeed = [];
   final List<WwChatLine> gameChat = [];
+  /// 狼队夜间频道：只有存活的狼在夜晚收得到（服务端逐人推送，非狼根本收不到该类型）。
+  final List<WwChatLine> wolfChat = [];
   final List<Map<String, dynamic>> livePrivate = [];
+  /// 在线客服有新回复的信号：面板监听它决定是否立即重拉，避免无脑轮询打断输入。
+  int supportTick = 0;
   int unreadMessages = 0;
   int unreadRequests = 0;
   int _noticeSeq = 0;
@@ -396,58 +510,32 @@ class AppStore extends ChangeNotifier {
         await api.post('/api/room/leave');
         room = null;
         game = null;
+        unawaited(_syncMarks(null));
         _closeVoice();
       });
   Future<void> startGame() => _run(() => api.post('/api/game/start', {}));
   Future<void> submitAction(Map<String, dynamic> a) => _run(() => api.post('/api/game/action', a));
   Future<void> sendChat(String text) => _run(() => api.post('/api/game/chat', {'text': text}));
+  /// 狼队夜间频道发言：服务端只向存活的狼转发，非狼调用会拿到明确错误文案。
+  Future<void> sendWolfChat(String text) => _run(() => api.post('/api/game/wolf-chat', {'text': text}));
+  /// AI 归纳本局对话（只总结「谁说了什么」，不分析局面）。
+  Future<String> feedSummary() async {
+    final r = await api.post('/api/game/feed-summary');
+    return '${r['summary'] ?? ''}';
+  }
   Future<void> endGame() => _run(() => api.post('/api/game/end', {}));
-  /// 模式开关。后端 ModeBody 是 4 个 **原始 boolean** 的 record，缺字段会被 Jackson 绑成
-  /// false —— 只发 2 个字段等于每次切换都把 huntCity / duoMode 静默关掉（还会覆盖网页端房主的设置）。
+  /// 模式开关。后端 ModeBody 是 3 个 **原始 boolean** 的 record，缺字段会被 Jackson 绑成
+  /// false —— 只发 1 个字段等于每次切换都把其它项静默关掉（还会覆盖网页端房主的设置）。
   /// 因此未显式传入的项一律以当前房间视图回填。
-  Future<void> setMode({bool? voiceMode, bool? anonymous, bool? huntCity, bool? duoMode}) =>
+  Future<void> setMode({bool? voiceMode, bool? anonymous, bool? huntCity}) =>
       _run(() async => room = await api.post('/api/room/mode', {
             'voiceMode': voiceMode ?? (room?['voiceMode'] == true),
             'anonymous': anonymous ?? (room?['anonymous'] == true),
             'huntCity': huntCity ?? (room?['huntCity'] == true),
-            'duoMode': duoMode ?? (room?['duoMode'] == true),
           }));
   Future<void> setItemMatch(bool on) =>
       _run(() async => room = await api.post('/api/room/item', {'itemMatch': on}));
 
-  // ---------- 双人结队 duo ----------
-  // 房间视图里的 duos 是「座位号对」数组（1-based），而 duoInvite 服务端恒为 null，
-  // 所以收到的邀请必须靠轮询 GET /api/room/duo/pending 拿（与网页版 pollDuoInvite 一致）。
-  Future<void> inviteDuo(int targetUserId) =>
-      _run(() => api.post('/api/room/duo/invite', {'targetUserId': targetUserId}));
-  Future<void> acceptDuo(int fromUserId) =>
-      _run(() async => room = await api.post('/api/room/duo/accept', {'fromUserId': fromUserId}));
-  Future<void> cancelDuo() => _run(() async => room = await api.post('/api/room/duo/cancel', {}));
-
-  /// 拉取发给我的组队邀请；无邀请或网络异常都返回 null（轮询用，不打扰界面）。
-  Future<Map<String, dynamic>?> pollDuoInvite() async {
-    if (token == null) return null;
-    try {
-      final v = await api.get('/api/room/duo/pending');
-      final inv = v['invite'];
-      return inv is Map<String, dynamic> ? inv : null;
-    } on AppError {
-      return null;
-    }
-  }
-
-  /// 我所在的双人组对（座位号对里含我的座位时返回该对，否则 null）。
-  List<int>? duoPairOfMine() {
-    final my = mySeat;
-    final duos = room?['duos'];
-    if (my <= 0 || duos is! List) return null;
-    for (final d in duos) {
-      if (d is List && d.length == 2 && (d[0] == my || d[1] == my)) {
-        return [(d[0] as num).toInt(), (d[1] as num).toInt()];
-      }
-    }
-    return null;
-  }
   Future<void> spectate(String no) => _run(() async {
         room = await api.post('/api/room/spectate', {'roomNo': no.trim()});
         if (room?['status'] == 'PLAYING') {
@@ -465,6 +553,66 @@ class AppStore extends ChangeNotifier {
         final r = my['room'];
         room = (r is Map<String, dynamic> && r['roomNo'] != null) ? r : null;
       });
+
+  // ---------- 在线客服（对话存在工单里，AI 自动答复，可转人工） ----------
+  /// 拉取我与在线客服的往来消息。thread 每条含 {content, ai, admin, author, at}；
+  /// human = 已有人工接手，needsHuman = 正在排队转接。
+  Future<({List<Map<String, dynamic>> thread, bool human, bool needsHuman})> supportThread() async {
+    final r = await api.get('/api/tickets/support');
+    final th = r['thread'];
+    final list = th is List
+        ? th.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : <Map<String, dynamic>>[];
+    return (
+      thread: list,
+      human: r['human'] == true,
+      needsHuman: r['needsHuman'] == true,
+    );
+  }
+
+  /// 向在线客服发一条消息（服务端 600ms 后异步生成 AI 答复并通过 support.update 通知）。
+  Future<void> supportSend(String text) => _run(() => api.post('/api/tickets/support/message', {'content': text}));
+
+  /// 转人工：写入承接话术、置为等待人工，并实时通知在线管理员。
+  Future<void> supportToHuman() => _run(() => api.post('/api/tickets/support/human'));
+
+  // ---------- 全 AI 队局（观战房） ----------
+  /// 观战房可选板子（服务端白名单内的预设）。
+  Future<List<Map<String, dynamic>>> aiShowBoards() async {
+    final r = await api.get('/api/ai-show/boards');
+    return _listOf(r['boards']);
+  }
+
+  /// 进行中的全 AI 观战房列表（有活跃对局或仍有人在看）。
+  Future<List<Map<String, dynamic>>> aiShowList() async {
+    final r = await api.get('/api/ai-show/list');
+    return _listOf(r['shows']);
+  }
+
+  /// 创建一间全 AI 观战房并立即开局：自己不入座（作为观战者），因此直接进入对局视图。
+  Future<void> createAiShow(String boardId) => _run(() async {
+        final r = await api.post('/api/ai-show/create', {'boardId': boardId});
+        final rm = r['room'];
+        if (rm is Map<String, dynamic>) room = rm;
+        await _enterWatchingGame();
+      });
+
+  /// 房主续开一局（当前局已结束时可用）。
+  Future<void> aiShowRestart() => _run(() => api.post('/api/ai-show/restart'));
+
+  /// 房主停止当前全 AI 对局（房间保留，可随时续开）。
+  Future<void> aiShowStop() => _run(() => api.post('/api/ai-show/stop'));
+
+  /// 观战/进入进行中的房间：补拉一次对局快照（服务端不会主动给观战者推 game.state 以外的全量）。
+  Future<void> _enterWatchingGame() async {
+    if (room?['status'] != 'PLAYING') return;
+    try {
+      game = await api.get('/api/game/state');
+    } catch (_) {}
+  }
+
+  static List<Map<String, dynamic>> _listOf(Object? v) =>
+      v is List ? v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList() : const [];
 
   void logoutLocal() {
     _disconnectWs();

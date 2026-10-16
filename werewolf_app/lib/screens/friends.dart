@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 好友：好友 / 申请 / 搜索 三个子页，点好友进入私聊。
 class FriendsScreen extends StatefulWidget {
@@ -25,7 +26,7 @@ class _FriendsScreenState extends State<FriendsScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('好友'),
+        title: const Tx('好友'),
         bottom: TabBar(
           controller: _tabs,
           labelColor: kAccent,
@@ -88,17 +89,17 @@ class _FriendListState extends State<_FriendList> {
                     if (f['online'] == true)
                       Positioned(right: 0, bottom: 0, child: Container(width: 11, height: 11, decoration: BoxDecoration(color: kGreen, shape: BoxShape.circle, border: Border.all(color: kPanel, width: 2)))),
                   ]),
-                  title: Text('${f['nickname']}', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-                  subtitle: Text('@${f['username']} · Lv.${f['level'] ?? 1}', style: const TextStyle(color: kDim, fontSize: 12)),
+                  title: Tx('${f['nickname']}', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                  subtitle: Tx('@${f['username']} · Lv.${f['level'] ?? 1}', style: TextStyle(color: kDim, fontSize: 12)),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     if ((f['unread'] ?? 0) is num && (f['unread'] as num) > 0)
                       Badge.count(count: (f['unread'] as num).toInt(), backgroundColor: kBlood),
                     IconButton(
-                      icon: const Icon(Icons.chat_bubble_outline, size: 20, color: kAccent),
+                      icon: Icon(Icons.chat_bubble_outline, size: 20, color: kAccent),
                       onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(peerId: (f['id'] as num).toInt(), peerName: '${f['nickname']}'))),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.person_remove_alt_1_outlined, size: 20, color: kDim),
+                      icon: Icon(Icons.person_remove_alt_1_outlined, size: 20, color: kDim),
                       onPressed: () async {
                         final s = context.read<AppStore>();
                         await s.api.post('/api/friends/remove', {'id': f['id']});
@@ -167,11 +168,11 @@ class _RequestListState extends State<_RequestList> {
               margin: const EdgeInsets.symmetric(vertical: 5),
               child: ListTile(
                 leading: WwAvatar(avatarId: r['from']?['avatarId'], avatarUrl: r['from']?['avatarUrl']),
-                title: Text('${r['from']?['nickname']}', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-                subtitle: Text((r['greeting'] ?? '').toString().isEmpty ? '请求添加你为好友' : '${r['greeting']}', style: const TextStyle(color: kDim, fontSize: 12)),
+                title: Tx('${r['from']?['nickname']}', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                subtitle: Tx((r['greeting'] ?? '').toString().isEmpty ? '请求添加你为好友' : '${r['greeting']}', style: TextStyle(color: kDim, fontSize: 12)),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  TextButton(onPressed: () => _handle((r['reqId'] as num).toInt(), false), child: const Text('拒绝')),
-                  FilledButton(onPressed: () => _handle((r['reqId'] as num).toInt(), true), child: const Text('同意')),
+                  TextButton(onPressed: () => _handle((r['reqId'] as num).toInt(), false), child: const Tx('拒绝')),
+                  FilledButton(onPressed: () => _handle((r['reqId'] as num).toInt(), true), child: const Tx('同意')),
                 ]),
               ),
             ),
@@ -226,7 +227,7 @@ class _SearchListState extends State<_SearchList> {
             Expanded(
               child: TextField(
                 controller: _kw,
-                decoration: const InputDecoration(hintText: '搜索用户名 / 昵称', isDense: true),
+                decoration: InputDecoration(hintText: tr('搜索用户名 / 昵称'), isDense: true),
                 onSubmitted: (_) => _search(),
               ),
             ),
@@ -247,13 +248,13 @@ class _SearchListState extends State<_SearchList> {
                     margin: const EdgeInsets.symmetric(vertical: 5),
                     child: ListTile(
                       leading: WwAvatar(avatarId: u['avatarId'], avatarUrl: u['avatarUrl']),
-                      title: Text('${u['nickname']}', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-                      subtitle: Text('@${u['username']} · Lv.${u['level'] ?? 1}', style: const TextStyle(color: kDim, fontSize: 12)),
+                      title: Tx('${u['nickname']}', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                      subtitle: Tx('@${u['username']} · Lv.${u['level'] ?? 1}', style: TextStyle(color: kDim, fontSize: 12)),
                       trailing: u['isFriend'] == true
-                          ? const Text('已是好友', style: TextStyle(color: kGreen, fontSize: 12))
+                          ? Tx('已是好友', style: TextStyle(color: kGreen, fontSize: 12))
                           : (u['pending'] == true
-                              ? const Text('已申请', style: TextStyle(color: kDim, fontSize: 12))
-                              : FilledButton(onPressed: () => _add((u['id'] as num).toInt()), child: const Text('添加'))),
+                              ? Tx('已申请', style: TextStyle(color: kDim, fontSize: 12))
+                              : FilledButton(onPressed: () => _add((u['id'] as num).toInt()), child: const Tx('添加'))),
                     ),
                   ),
               ],
@@ -330,12 +331,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (m['from'] == widget.peerId && !ids.contains(m['id'])) shown.add(m);
     }
     return Scaffold(
-      appBar: AppBar(title: Text('与 ${widget.peerName} 的对话')),
+      appBar: AppBar(title: Tx('与 ${widget.peerName} 的对话')),
       body: Column(
         children: [
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator(color: kAccent))
+                ? Center(child: CircularProgressIndicator(color: kAccent))
                 : ListView(
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
@@ -352,7 +353,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: kBorder),
                             ),
-                            child: Text('${m['content']}', style: const TextStyle(color: kText)),
+                            child: Tx('${m['content']}', style: TextStyle(color: kText)),
                           ),
                         ),
                     ],
@@ -366,7 +367,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _input,
-                    decoration: const InputDecoration(hintText: '发消息…', isDense: true),
+                    decoration: InputDecoration(hintText: tr('发消息…'), isDense: true),
                     onSubmitted: (_) => _send(),
                   ),
                 ),

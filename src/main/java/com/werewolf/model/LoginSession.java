@@ -23,6 +23,13 @@ public class LoginSession {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    /**
+     * 会话域：app=玩家端（游戏页面），admin=管理后台。
+     * 同一账号在两个域里可以各自保持登录、互不挤掉（登录只在同域内做单会话互踢）。
+     */
+    @Column(nullable = false, length = 16, columnDefinition = "varchar(16) default 'app'")
+    private String scope = "app";
+
     @Column(nullable = false)
     private LocalDateTime expireAt;
 
@@ -35,6 +42,8 @@ public class LoginSession {
     public void setTokenHash(String tokenHash) { this.tokenHash = tokenHash; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public String getScope() { return scope; }
+    public void setScope(String scope) { this.scope = scope; }
     public LocalDateTime getExpireAt() { return expireAt; }
     public void setExpireAt(LocalDateTime expireAt) { this.expireAt = expireAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

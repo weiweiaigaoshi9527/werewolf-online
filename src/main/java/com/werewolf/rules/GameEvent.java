@@ -11,7 +11,9 @@ public record GameEvent(
         String type,
         int actorSeat,
         int targetSeat,
-        String detail) {
+        String detail) implements java.io.Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /* ---------- 常用类型常量 ---------- */
     public static final String GAME_START = "GAME_START";
@@ -19,6 +21,7 @@ public record GameEvent(
     public static final String NIGHT_RESOLVE = "NIGHT_RESOLVE";
     public static final String DAWN_ANNOUNCE = "DAWN_ANNOUNCE";
     public static final String SHERIFF_SIGNUP = "SHERIFF_SIGNUP";
+    public static final String SHERIFF_WITHDRAW = "SHERIFF_WITHDRAW";
     public static final String SHERIFF_WIN = "SHERIFF_WIN";
     public static final String LAST_WORDS = "LAST_WORDS";
     public static final String SPEECH = "SPEECH";

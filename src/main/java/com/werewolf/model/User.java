@@ -45,6 +45,10 @@ public class User {
     @Column(length = 16)
     private String nickColor;
 
+    /** 已穿戴的 3D 皮肤标识（SKIN3D 商品的 asset，null/空=默认村民造型） */
+    @Column(length = 32)
+    private String skin3d;
+
     /** 上次改名时间（限频用） */
     private LocalDateTime nicknameUpdatedAt;
 
@@ -103,14 +107,6 @@ public class User {
     @Column(name = "vip_expire_at")
     private LocalDateTime vipExpireAt;
 
-    /** QQ 号（用户自填，5-11 位数字；用于展示与拉取 QQ 头像）。 */
-    @Column(length = 16)
-    private String qq;
-
-    /** 是否已领取过"补填 QQ 奖励"（一次性 1000 金币，防重复领取）。 */
-    @Column(name = "qq_rewarded", nullable = false, columnDefinition = "boolean default false")
-    private boolean qqRewarded = false;
-
     /** 是否管理员（可访问后台）。首个注册者自动为 true，或由配置引导。 */
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean admin = false;
@@ -156,6 +152,9 @@ public class User {
 
     public String getNickColor() { return nickColor; }
     public void setNickColor(String nickColor) { this.nickColor = nickColor; }
+
+    public String getSkin3d() { return skin3d; }
+    public void setSkin3d(String skin3d) { this.skin3d = skin3d; }
 
     public LocalDateTime getNicknameUpdatedAt() { return nicknameUpdatedAt; }
     public void setNicknameUpdatedAt(LocalDateTime nicknameUpdatedAt) { this.nicknameUpdatedAt = nicknameUpdatedAt; }
@@ -206,11 +205,6 @@ public class User {
     public void setVipLevel(int v) { this.vipLevel = v; }
     public LocalDateTime getVipExpireAt() { return vipExpireAt; }
     public void setVipExpireAt(LocalDateTime v) { this.vipExpireAt = v; }
-
-    public String getQq() { return qq; }
-    public void setQq(String v) { this.qq = v; }
-    public boolean isQqRewarded() { return qqRewarded; }
-    public void setQqRewarded(boolean v) { this.qqRewarded = v; }
 
     public long getVersion() { return version; }
     public void setVersion(long version) { this.version = version; }

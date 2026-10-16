@@ -54,6 +54,18 @@ public class AiService {
         return Math.max(get().getMaxRetries(), 0);
     }
 
+    /**
+     * 有效 AI 代理地址：优先取后台配置；后台未配置时回退到环境变量 WW_AI_PROXY。
+     * 用途：部分网络环境下到 AI 服务的直连会被中间设备重置（Connection reset），
+     * 配一个 HTTP 代理（如 http://127.0.0.1:3067）即可绕过。留空=直连。
+     */
+    public String effectiveProxyUrl() {
+        String p = get().getProxyUrl();
+        if (p != null && !p.isBlank()) return p.trim();
+        String env = System.getenv("WW_AI_PROXY");
+        return (env == null || env.isBlank()) ? null : env.trim();
+    }
+
     /** 调用 LLM，受并发限制；失败抛异常由上层降级。 */
     public String chat(List<AiProvider.Message> messages) throws Exception {
         AiConfig c = get();
@@ -78,7 +90,7 @@ public class AiService {
         int retries = effectiveRetries();
         AiProvider.AiOptions opts = new AiProvider.AiOptions(
                 c.getBaseUrl(), CryptoUtil.decrypt(c.getApiKeyEnc()), c.getModel(),
-                c.getTemperature(), maxTokens, timeout, retries);
+                c.getTemperature(), maxTokens, timeout, retries, effectiveProxyUrl());
         Semaphore s = ensureSemaphore(c.getConcurrency());
         // 限并发获取改为带超时：并发槽位被长期占用时不再无限阻塞对局线程，
         // 超时即放弃本次调用（tryAcquire 失败未获得许可，无需释放），由上层降级为随机/默认动作。
@@ -112,11 +124,13 @@ public class AiService {
 
     public record ConfigDto(String baseUrl, String apiKey, String model, String depth,
                             Double temperature, Integer timeoutSeconds, Integer maxRetries,
-                            Integer concurrency, Long tokenBudgetPerGame, Boolean enabled) {}
+                            Integer concurrency, Long tokenBudgetPerGame, Boolean enabled, String proxyUrl) {}
 
     public AiConfig saveConfig(ConfigDto dto) {
         AiConfig c = get();
         if (dto.baseUrl() != null) c.setBaseUrl(dto.baseUrl().trim());
+        // 代理允许被清空（传空串即改回直连），因此不能沿用“空串=不修改”的密钥处理方式
+        if (dto.proxyUrl() != null) c.setProxyUrl(dto.proxyUrl().trim());
         if (dto.apiKey() != null && !dto.apiKey().isBlank()) c.setApiKeyEnc(CryptoUtil.encrypt(dto.apiKey().trim()));
         if (dto.model() != null) c.setModel(dto.model().trim());
         if (dto.depth() != null) c.setDepth(dto.depth());
@@ -136,6 +150,8 @@ public class AiService {
         AiConfig c = get();
         java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("baseUrl", c.getBaseUrl());
+        m.put("proxyUrl", c.getProxyUrl());
+        m.put("effectiveProxyUrl", effectiveProxyUrl());
         m.put("hasKey", c.getApiKeyEnc() != null && !c.getApiKeyEnc().isBlank());
         m.put("model", c.getModel());
         m.put("depth", c.getDepth());

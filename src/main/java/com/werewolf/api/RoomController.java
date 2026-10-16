@@ -53,9 +53,15 @@ public class RoomController {
         return withUser(auth, user -> {
             RoomService.ActionResult r = roomService.join(user, body.roomNo());
             if (r.error() != null) return err(r.error());
-            broadcaster.sendToUser(user.getId(), "room.state", Map.of("room", r.view()));
-            broadcaster.broadcastState(currentRoomId(user.getId()), r.view());
-            broadcaster.broadcastEvent(currentRoomId(user.getId()), user.getNickname() + " 加入房间");
+            // 用「房号 → 房间」解析广播目标，而不是 currentRoomId(uid)：
+            // 观战者没有座位记录，findRoomOfUser 为空，直接用 uid 取 roomId 会得到 null 并 NPE。
+            Long roomId = roomService.findByRoomNo(body.roomNo()).map(Room::getId).orElse(null);
+            if (roomId != null) {
+                broadcaster.broadcastState(roomId, r.view());
+                broadcaster.broadcastEvent(roomId, user.getNickname() + " 加入房间");
+            } else {
+                broadcaster.sendToUser(user.getId(), "room.state", Map.of("room", r.view()));
+            }
             return ok(r.view());
         });
     }
@@ -68,9 +74,11 @@ public class RoomController {
             // 调用增强后的 spectate：内部已校验房号格式与房间存在性（不存在/已解散会被拒绝）
             RoomService.ActionResult r = roomService.spectate(user, body.roomNo());
             if (r.error() != null) return err(r.error());
-            // 观战成功后：给观战者本人推一份状态，并向房间成员广播最新状态，保持观战侧与对局侧同步
+            // 观战者没有座位记录，必须按房号解析 roomId 才能广播（否则 NPE）
+            Long roomId = roomService.findByRoomNo(body.roomNo()).map(Room::getId).orElse(null);
+            if (roomId != null) broadcaster.broadcastState(roomId, r.view());
+            // 给观战者本人补一份状态，保证其界面立刻进入该房间
             broadcaster.sendToUser(user.getId(), "room.state", Map.of("room", r.view()));
-            broadcaster.broadcastState(currentRoomId(user.getId()), r.view());
             return ok(r.view());
         });
     }
@@ -157,7 +165,7 @@ public class RoomController {
 
     public record BoardBody(Map<String, Integer> counts, String boardName) {}
 
-    public record ModeBody(boolean voiceMode, boolean anonymous, boolean huntCity, boolean duoMode) {}
+    public record ModeBody(boolean voiceMode, boolean anonymous, boolean huntCity) {}
 
     public record ItemBody(boolean itemMatch) {}
 
@@ -182,70 +190,13 @@ public class RoomController {
         return withUser(auth, host -> {
             Set<String> off = disabledFeatures();
             if (body.voiceMode() && off.contains("voiceMode")) return err("语音同传功能已被管理员关闭");
-            if (body.duoMode() && off.contains("duo")) return err("双人组队功能已被管理员关闭");
-            RoomService.ActionResult r = roomService.setMode(host, body.voiceMode(), body.anonymous(), body.huntCity(), body.duoMode());
+            RoomService.ActionResult r = roomService.setMode(host, body.voiceMode(), body.anonymous(), body.huntCity());
             if (r.error() != null) return err(r.error());
             broadcaster.broadcastState(currentRoomId(host.getId()), r.view());
             broadcaster.broadcastEvent(currentRoomId(host.getId()),
                     "房主更新了模式：" + (body.voiceMode() ? "语音同传 · 匿名" : (body.anonymous() ? "匿名" : "标准"))
                             + (body.huntCity() ? " · 数量规则" : ""));
             return ok(r.view());
-        });
-    }
-
-    /** 向同房间玩家发起组队邀请。 */
-    @PostMapping("/duo/invite")
-    public ResponseEntity<?> inviteDuo(@RequestHeader(value = "Authorization", required = false) String auth,
-                                       @RequestBody DuoTargetBody body) {
-        return withUser(auth, from -> {
-            RoomService.ActionResult r = roomService.inviteDuo(from, body.targetUserId());
-            if (r.error() != null) return err(r.error());
-            // 必须广播完整房间状态：被邀请人的前端只在 renderRoom 时轮询 /duo/pending，
-            // 不广播 state 的话，对方要等到下一个无关广播（补 AI/准备）才能弹确认框。
-            broadcaster.broadcastState(currentRoomId(from.getId()), r.view());
-            broadcaster.broadcastEvent(currentRoomId(from.getId()), from.getNickname() + " 发起了组队邀请（可在座位卡上回应）");
-            return ok(Map.of("ok", true));
-        });
-    }
-
-    /** 接受组队邀请。 */
-    @PostMapping("/duo/accept")
-    public ResponseEntity<?> acceptDuo(@RequestHeader(value = "Authorization", required = false) String auth,
-                                       @RequestBody DuoAcceptBody body) {
-        return withUser(auth, me -> {
-            RoomService.ActionResult r = roomService.acceptDuo(me, body.fromUserId());
-            if (r.error() != null) return err(r.error());
-            broadcaster.broadcastState(currentRoomId(me.getId()), r.view());
-            broadcaster.broadcastEvent(currentRoomId(me.getId()), "一对玩家组成了双人队伍 👫");
-            return ok(r.view());
-        });
-    }
-
-    /** 取消组队 / 撤回邀请。 */
-    @PostMapping("/duo/cancel")
-    public ResponseEntity<?> cancelDuo(@RequestHeader(value = "Authorization", required = false) String auth) {
-        return withUser(auth, me -> {
-            RoomService.ActionResult r = roomService.cancelDuo(me);
-            if (r.error() != null) return err(r.error());
-            broadcaster.broadcastState(currentRoomId(me.getId()), r.view());
-            return ok(r.view());
-        });
-    }
-
-    /** 查询发给我的组队邀请（前端在等待室轮询）。 */
-    @GetMapping("/duo/pending")
-    public ResponseEntity<?> pendingDuo(@RequestHeader(value = "Authorization", required = false) String auth) {
-        return withUser(auth, me -> {
-            // Map.of 不接受 null 值，「无邀请」这条最常见路径会抛 NPE → 用允许 null 的 Map
-            Long roomId = currentRoomId(me.getId());
-            if (roomId == null) return ok(noDuoInvite());
-            return roomService.pendingInviteFor(roomId, me.getId())
-                    .<ResponseEntity<?>>map(inv -> {
-                        Map<String, Object> body = new java.util.LinkedHashMap<>();
-                        body.put("invite", inv);
-                        return ok(body);
-                    })
-                    .orElseGet(() -> ok(noDuoInvite()));
         });
     }
 
@@ -261,17 +212,6 @@ public class RoomController {
         } catch (Exception ignored) {}
         return out;
     }
-
-    /** 无待处理组队邀请的响应体（值需允许为 null，故不用 Map.of）。 */
-    private static Map<String, Object> noDuoInvite() {
-        Map<String, Object> m = new java.util.HashMap<>();
-        m.put("invite", null);
-        return m;
-    }
-
-    /** 组队/板子的请求体记录。 */
-    public record DuoTargetBody(long targetUserId) {}
-    public record DuoAcceptBody(long fromUserId) {}
 
     @PostMapping("/board")
     public ResponseEntity<?> setBoard(@RequestHeader(value = "Authorization", required = false) String auth,
@@ -289,6 +229,8 @@ public class RoomController {
     public ResponseEntity<?> my(@RequestHeader(value = "Authorization", required = false) String auth) {
         return withUser(auth, user -> {
             Optional<Room> r = roomService.findRoomOfUser(user.getId());
+            // 观战者没有座位记录：回退到「正在观战的房间」，使刷新页面后仍能回到观战界面
+            if (r.isEmpty()) r = roomService.findWatchedRoom(user.getId());
             if (r.isEmpty()) return ok(Map.of("room", (Object) Map.of()));
             return ok(Map.of("room", roomService.view(r.get())));
         });

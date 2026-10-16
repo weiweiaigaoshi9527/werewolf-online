@@ -4,7 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** 板子配置：角色 -> 数量。 */
-public class BoardConfig {
+public class BoardConfig implements java.io.Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final Map<Role, Integer> counts = new LinkedHashMap<>();
 

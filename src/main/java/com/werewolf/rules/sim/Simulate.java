@@ -302,6 +302,8 @@ public class Simulate {
             if (p == GamePhase.DAY_VOTE) return;
             if (p == GamePhase.SHERIFF_ELECTION) {
                 if (g.sheriffSignupActive()) g.submitSheriffSignup(g.sheriffSignupCursor(), false);
+                else if (g.sheriffSpeechActive()) g.submitSpeech(g.currentSheriffSpeaker(), "");
+                else if (g.sheriffWithdrawActive()) g.submitSheriffWithdraw(g.currentSheriffWithdrawer(), false);
                 else {
                     int v = g.nextSheriffVoter();
                     if (v == 0) return;
@@ -313,6 +315,11 @@ public class Simulate {
                 g.submitLastWords(g.currentLastWords(), "");
             } else if (p == GamePhase.SHOOT) {
                 g.submitShoot(g.currentShooter(), 0);
+            } else if (p == GamePhase.SHERIFF_TRANSFER) {
+                g.submitSheriffTransfer(0);   // 测试辅助：默认撕毁警徽
+            } else if (p == GamePhase.SHERIFF_ORDER) {
+                List<Integer> seats = g.alive().stream().map(se -> se.seat).sorted().toList();
+                g.submitSheriffOrder(seats.isEmpty() ? 0 : seats.get(0));
             } else {
                 return;
             }

@@ -6,6 +6,7 @@ import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
 import 'shop.dart';
+import '../i18n.dart';
 
 /// 资料编辑：签名 / 生日 / 所在地 / 注册地 / 语音音色性别 + 分角色战绩。
 /// 服务端 POST /api/user/profile-info 对未传字段不改写（null=保持原值），
@@ -151,7 +152,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('编辑资料'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))]),
+      appBar: AppBar(title: const Tx('编辑资料'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))]),
       body: StateBox(
         loading: _loading,
         child: ListView(
@@ -162,26 +163,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               controller: _sign,
               maxLines: 3,
               maxLength: 60,
-              decoration: const InputDecoration(hintText: '一句话介绍自己（最多 60 字）'),
+              decoration: InputDecoration(hintText: tr('一句话介绍自己（最多 60 字）')),
             ),
             const SectionTitle('所在地'),
             TextField(
               controller: _loc,
               maxLength: 32,
-              decoration: const InputDecoration(hintText: '现在所在城市（最多 32 字）'),
+              decoration: InputDecoration(hintText: tr('现在所在城市（最多 32 字）')),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _regLoc,
               maxLength: 32,
-              decoration: const InputDecoration(hintText: '注册地 / 家乡（最多 32 字）'),
+              decoration: InputDecoration(hintText: tr('注册地 / 家乡（最多 32 字）')),
             ),
             const SectionTitle('生日'),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.cake_outlined, color: kAccent),
-              title: Text(_birthday.isEmpty ? '未设置' : _birthday, style: const TextStyle(color: kText)),
-              trailing: const Text('修改', style: TextStyle(color: kAccent)),
+              leading: Icon(Icons.cake_outlined, color: kAccent),
+              title: Tx(_birthday.isEmpty ? '未设置' : _birthday, style: TextStyle(color: kText)),
+              trailing: Tx('修改', style: TextStyle(color: kAccent)),
               onTap: _pickBirthday,
             ),
             const SectionTitle('语音音色'),
@@ -190,14 +191,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 for (final o in const [('M', '男声'), ('F', '女声'), ('', '自动')])
                   ChoiceChip(
-                    label: Text(o.$2),
+                    label: Tx(o.$2),
                     selected: _voiceGender == o.$1,
                     onSelected: (_) => _setVoice(o.$1),
                   ),
               ],
             ),
             const SizedBox(height: 10),
-            const Text('音色只影响你自己发言时服务端 TTS 的合成声线，对局内他人看到的是座位号。',
+            Tx('音色只影响你自己发言时服务端 TTS 的合成声线，对局内他人看到的是座位号。',
                 style: TextStyle(color: kDim, fontSize: 12, height: 1.5)),
             const SectionTitle('头像与装扮'),
             Row(
@@ -208,15 +209,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_p['avatarUrl'] == null || '${_p['avatarUrl']}'.isEmpty ? '当前使用内置头像' : '当前使用自定义头像',
-                          style: const TextStyle(color: kMoon, fontSize: 13.5)),
+                      Tx(_p['avatarUrl'] == null || '${_p['avatarUrl']}'.isEmpty ? '当前使用内置头像' : '当前使用自定义头像',
+                          style: TextStyle(color: kMoon, fontSize: 13.5)),
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
                         onPressed: _uploading ? null : _uploadAvatar,
                         icon: _uploading
                             ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
                             : const Icon(Icons.upload_outlined, size: 18),
-                        label: Text(_uploading ? '上传中…' : '上传自定义头像'),
+                        label: Tx(_uploading ? '上传中…' : '上传自定义头像'),
                       ),
                     ],
                   ),
@@ -225,22 +226,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
             // 服务端 unequip AVATAR 只把 avatarId 复位到 1，并不清 avatarUrl，
             // 所以「恢复默认」在这里是假的——不给按钮，只说明清楚，避免用户以为能回退。
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
-              child: Text('图片会被服务端居中裁方并压成 128×128 PNG（上限 2MB）。注意：一旦上传自定义头像就无法再切回内置头像，'
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Tx('图片会被服务端居中裁方并压成 128×128 PNG（上限 2MB）。注意：一旦上传自定义头像就无法再切回内置头像，'
                   '内置头像/头像框/称号请在商店与背包里更换。', style: TextStyle(color: kDim, fontSize: 11.5, height: 1.5)),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.auto_awesome_motion_outlined, color: kAccent),
-              title: const Text('去商店 / 背包换装扮', style: TextStyle(color: kText, fontSize: 14)),
-              subtitle: const Text('头像框、称号、昵称颜色、功能道具', style: TextStyle(color: kDim, fontSize: 12)),
-              trailing: const Icon(Icons.chevron_right, color: kDim),
+              leading: Icon(Icons.auto_awesome_motion_outlined, color: kAccent),
+              title: Tx('去商店 / 背包换装扮', style: TextStyle(color: kText, fontSize: 14)),
+              subtitle: Tx('头像框、称号、昵称颜色、功能道具', style: TextStyle(color: kDim, fontSize: 12)),
+              trailing: Icon(Icons.chevron_right, color: kDim),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ShopScreen())),
             ),
             const SectionTitle('分角色战绩'),
             if (_roleStats.isEmpty)
-              const Text('还没有可统计的对局', style: TextStyle(color: kDim, fontSize: 13))
+              Tx('还没有可统计的对局', style: TextStyle(color: kDim, fontSize: 13))
             else
               Card(
                 child: Column(
@@ -248,10 +249,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     for (final r in _roleStats)
                       ListTile(
                         dense: true,
-                        title: Text('${r['role']}', style: const TextStyle(color: kMoon, fontSize: 14)),
-                        subtitle: Text('${r['games']} 场 · 胜 ${r['wins']} · 胜率 ${_rate(r)}%',
-                            style: const TextStyle(color: kDim, fontSize: 12)),
-                        trailing: Text(_dur(r['seconds']), style: const TextStyle(color: kDim, fontSize: 12)),
+                        title: Tx('${r['role']}', style: TextStyle(color: kMoon, fontSize: 14)),
+                        subtitle: Tx('${r['games']} 场 · 胜 ${r['wins']} · 胜率 ${_rate(r)}%',
+                            style: TextStyle(color: kDim, fontSize: 12)),
+                        trailing: Tx(_dur(r['seconds']), style: TextStyle(color: kDim, fontSize: 12)),
                       ),
                   ],
                 ),
@@ -260,7 +261,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             FilledButton.icon(
               onPressed: _saving ? null : _save,
               icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
-              label: Text(_saving ? '保存中…' : '保存资料'),
+              label: Tx(_saving ? '保存中…' : '保存资料'),
             ),
           ],
         ),

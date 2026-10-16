@@ -5,6 +5,7 @@ import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
 import 'profile_view.dart';
+import '../i18n.dart';
 
 /// 排行榜：GET /api/ranking?by=win|gold|level&limit=
 /// by 传非法值时服务端按 win 排；limit 默认 50，钳制到 [5,200]；封禁玩家已被剔除。
@@ -53,12 +54,12 @@ class _RankingScreenState extends State<RankingScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (!store.feat('ranking')) {
-      return const Scaffold(body: Center(child: Text('排行榜已被管理员关闭', style: TextStyle(color: kDim))));
+      return Scaffold(body: Center(child: Tx('排行榜已被管理员关闭', style: TextStyle(color: kDim))));
     }
     final myId = store.user?['id'];
     return Scaffold(
       appBar: AppBar(
-        title: const Text('排行榜'),
+        title: const Tx('排行榜'),
         actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
       ),
       body: Column(
@@ -70,7 +71,7 @@ class _RankingScreenState extends State<RankingScreen> {
                 for (final m in _modes)
                   Expanded(
                     child: ChoiceChip(
-                      label: Text(m.$2),
+                      label: Tx(m.$2),
                       selected: _by == m.$1,
                       onSelected: (_) => _pick(m.$1),
                     ),
@@ -113,7 +114,7 @@ class _RankingScreenState extends State<RankingScreen> {
         dense: true,
         leading: SizedBox(
           width: 34,
-          child: Text(
+          child: Tx(
             rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : '$rank',
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -123,11 +124,11 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
           ),
         ),
-        title: Text('${r['nickname'] ?? ''}',
+        title: Tx('${r['nickname'] ?? ''}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: me ? kAccent : kMoon, fontWeight: me ? FontWeight.bold : FontWeight.normal)),
-        subtitle: Text('$metric · MVP ${r['mvp'] ?? 0}', style: const TextStyle(color: kDim, fontSize: 12)),
+        subtitle: Tx('$metric · MVP ${r['mvp'] ?? 0}', style: TextStyle(color: kDim, fontSize: 12)),
         onTap: () {
           final id = (r['userId'] as num?)?.toInt();
           if (id != null && !me) showWwProfile(context, id, title: '${r['nickname'] ?? ''}');

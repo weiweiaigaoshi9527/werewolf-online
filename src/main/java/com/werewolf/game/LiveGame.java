@@ -17,6 +17,8 @@ public class LiveGame {
     public final GameEngine engine;
     public final Map<Integer, SeatInfo> seats;      // seat -> info
     public final Map<Long, Integer> userToSeat;     // 真人 userId -> seat
+    /** 开局随机种子：用于重建 rnd（也供快照恢复）。 */
+    public final long seed;
     public final Random rnd;
     public final boolean huntByBorder;
 
@@ -36,6 +38,8 @@ public class LiveGame {
     public volatile int narratedNightDay = -1;
     /** 已播报“天亮被杀结果”的天数（每天首个白天阶段只播一次）。 */
     public volatile int narratedDawnDay = -1;
+    /** 是否已播报“退水环节开始”的旁白（警长竞选内只播一次）。 */
+    public volatile boolean narratedSheriffWithdraw = false;
     /** 本夜上一个“已睁眼”的角色名（用于在其行动结束后再播报“XX请闭眼”）。 */
     public volatile String lastNightOpen = null;
     /** 上一次播报“请X号发表遗言”的遗言座位（用于每位遗言者各播一次，避免只播首位）。 */
@@ -59,6 +63,8 @@ public class LiveGame {
     public final boolean voiceMode;
     public final boolean anonymous;
     public final boolean itemMatch;                 // 是否功能道具赛（关闭则携带道具本局不生效、结算不双倍/不消耗）
+    /** 全 AI 队局（观战房）：全员皆 AI，观战者可获得上帝视角；结束后自动续开下一局。 */
+    public final boolean aiOnly;
     /** 匿名模式下：realSeat(1..N) -> 对外显示号(随机置换)；非匿名为 null。 */
     public final int[] showOf;
     /** 显示号 -> 真实座位（showOf 的逆）。 */
@@ -71,17 +77,25 @@ public class LiveGame {
     public LiveGame(long roomId, String roomNo, GameEngine engine, Map<Integer, SeatInfo> seats,
                     Map<Long, Integer> userToSeat, long seed, boolean huntByBorder,
                     boolean voiceMode, boolean anonymous, boolean itemMatch, long hostUserId) {
+        this(roomId, roomNo, engine, seats, userToSeat, seed, huntByBorder, voiceMode, anonymous, itemMatch, hostUserId, false);
+    }
+
+    public LiveGame(long roomId, String roomNo, GameEngine engine, Map<Integer, SeatInfo> seats,
+                    Map<Long, Integer> userToSeat, long seed, boolean huntByBorder,
+                    boolean voiceMode, boolean anonymous, boolean itemMatch, long hostUserId, boolean aiOnly) {
         this.roomId = roomId;
         this.roomNo = roomNo;
         this.engine = engine;
         this.seats = seats;
         this.userToSeat = userToSeat;
+        this.seed = seed;
         this.rnd = new Random(seed);
         this.huntByBorder = huntByBorder;
         this.voiceMode = voiceMode;
         this.anonymous = anonymous;
         this.itemMatch = itemMatch;
         this.hostUserId = hostUserId;
+        this.aiOnly = aiOnly;
         // 匿名打乱改为“座位分配洗牌”（在 LiveGameService.start 里重排玩家到 1..N 号位），
         // 因此显示号=座位号=行动/发言顺序，界面从左到右即回合顺序。showOf 保持恒等。
         this.showOf = null;

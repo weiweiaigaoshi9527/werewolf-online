@@ -1,5 +1,5 @@
 /* 狼人杀 PWA Service Worker —— 网络优先、离线回退缓存，保证更新即时、断网可开。 */
-const CACHE = 'ww-shell-v3';                 // 缓存名带版本，便于 activate 时清理旧版本，避免旧资源长期滞留
+const CACHE = 'ww-shell-v4';                 // 缓存名带版本，便于 activate 时清理旧版本，避免旧资源长期滞留
 
 // 仅这些静态资源参与离线缓存写入；其余（接口 / 上传 / 下载 / 带 .zip、.db 的请求）一律不缓存
 const CACHEABLE_PREFIXES = ['/css/', '/js/', '/icons/'];

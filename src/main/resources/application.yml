@@ -25,6 +25,15 @@ spring:
         jdbc:
           batch_size: 50
           order_inserts: true
+  # 静态资源不做强缓存：本应用是长期驻留的 SPA/PWA（含 Service Worker），
+  # 若浏览器沿用旧的 JS/CSS，服务端更新后界面仍是旧版（表现为“新功能没生效”）。
+  # 这里改为每次带 ETag/Last-Modified 回源校验，未变化时返回 304，开销极小。
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-cache: true
+          must-revalidate: true
   servlet:
     multipart:
       max-file-size: 5MB

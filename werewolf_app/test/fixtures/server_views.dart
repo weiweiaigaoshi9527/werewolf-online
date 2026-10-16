@@ -8,9 +8,7 @@ library;
 Map<String, dynamic> roomView({
   String roomNo = '200728',
   int hostUserId = 2180,
-  bool duoMode = false,
   int maxSeats = 24,
-  List<List<int>>? duos,
   List<Map<String, dynamic>>? players,
 }) =>
     {
@@ -33,12 +31,6 @@ Map<String, dynamic> roomView({
       'anonymous': false,
       'itemMatch': true,
       'huntCity': false,
-      'duoMode': duoMode,
-      // duos 是「座位号对」数组（1-based）；duoInvite 服务端恒为 null，邀请要轮询 GET /api/room/duo/pending
-      'duos': duos ?? (duoMode ? [
-            [1, 6]
-          ] : <List<int>>[]),
-      'duoInvite': null,
     };
 
 Map<String, dynamic> _player({
@@ -107,7 +99,6 @@ Map<String, dynamic> gameStateDay({int mySeat = 1, int roomNo = 200728}) => {
         'itemReveal': false,
         'itemDoubleVote': false,
         'itemImmune': false,
-        'partner': null,
       },
       'deadlineMs': 45000,
       'spectator': false,

@@ -56,6 +56,17 @@ public final class AiContextBuilder {
             sb.append("【上夜禁言】").append(sh(showOf, me.silencerLastTarget)).append("号\n");
         }
 
+        sb.append("\n【你的历史立场·必须自洽】\n");
+        List<String> mine = ownHistory(g, seat, showOf);
+        if (mine.isEmpty()) {
+            sb.append("（你还没有发过言、投过票。这是你第一次表态，请给出明确的初步判断。）\n");
+        } else {
+            for (String l : mine) sb.append(l).append("\n");
+            sb.append("以上是你已经当众说过的立场（全场都记得）。后续的发言与投票都要与之衔接：")
+                    .append("要么延续你的判断并补充新依据，要么明确说出“我改口了，因为……”。")
+                    .append("不要毫无理由地推翻自己说过的话（比如昨天咬定某人是狼，今天突然帮他说话），那样等于自曝在演戏。\n");
+        }
+
         sb.append("\n【公开对局记录】\n");
         List<String> lines = publicLines(g, showOf);
         if (lines.isEmpty()) sb.append("（这是本局第一次行动，还没有任何公开信息）\n");
@@ -71,6 +82,26 @@ public final class AiContextBuilder {
                 if (e.type().equals(GameEvent.SPEECH) && e.day() == g.day() && !spoke.contains(e.actorSeat())) spoke.add(sh(showOf, e.actorSeat()));
             sb.append("【本轮已发言】").append(spoke.isEmpty() ? "还没有人发言（你是第一个）"
                     : spoke.stream().map(s -> s + "号").toList()).append("\n");
+        } else if (g.phase() == GamePhase.SHERIFF_ELECTION) {
+            // 警长竞选：仅上警者发言 → 上警者依次决定是否退水 → 只有未上警者才有投票权
+            sb.append("【警长竞选·上警名单】")
+                    .append(g.sheriffCandidates().isEmpty() ? "暂无"
+                            : g.sheriffCandidates().stream().map(s -> sh(showOf, s) + "号").toList()).append("\n");
+            sb.append("【警长竞选·规则】只有上警的候选人才发言；退水环节候选人可退出竞选；"
+                    + "警长投票只有【从未上警】的玩家有资格，上过警（含已退水）的人都没有投票权。\n");
+            if (g.sheriffSpeechActive()) {
+                sb.append("【竞选发言顺序】").append(g.sheriffSpeechOrder().stream().map(s -> sh(showOf, s) + "号").toList()).append("\n");
+                List<Integer> spoke = new ArrayList<>();
+                for (int s : g.sheriffSpeechOrder()) {
+                    if (s == g.currentSheriffSpeaker()) break;
+                    spoke.add(sh(showOf, s));
+                }
+                sb.append("【竞选已发言】").append(spoke.isEmpty() ? "还没有人发言（你是第一个）"
+                        : spoke.stream().map(s -> s + "号").toList()).append("\n");
+            } else if (g.sheriffWithdrawActive()) {
+                sb.append("【退水环节】现在轮到 ").append(sh(showOf, g.currentSheriffWithdrawer()))
+                        .append(" 号决定是否退水（退水后不再参与投票）。\n");
+            }
         }
         return sb.toString();
     }
@@ -79,18 +110,28 @@ public final class AiContextBuilder {
         List<String> out = new ArrayList<>();
         for (GameEvent e : g.events()) {
             switch (e.type()) {
+                case GameEvent.DAWN_ANNOUNCE -> {
+                    // 平安夜是重要的逻辑信号（说明狼刀被守/被救），必须让 AI 知道
+                    if (e.detail() != null && e.detail().contains("deaths=[]")) {
+                        out.add("第" + e.day() + "天 天亮：平安夜（昨夜无人出局）");
+                    }
+                }
                 case GameEvent.PLAYER_DIED -> {
-                    // 出局者身份对全场公开：AI 与真人一样，能看到已出局玩家的真实身份（有意设计，非 bug）
-                    Player dp = g.bySeat(e.actorSeat());
-                    String role = dp != null ? "（身份：" + dp.role.cnName() + "）" : "";
-                    out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号 出局" + role
+                    // 出局不翻牌：死亡不公开身份。AI 与真人看到的信息完全一致，
+                    // 只能靠发言逻辑/票型推断，避免 AI"开天眼"（也避免它把真实身份说漏嘴）。
+                    out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号 出局"
                             + "，死因：" + deathCauseZh(e.detail()));
                 }
+                case GameEvent.SHERIFF_SIGNUP -> out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号"
+                        + ("上警".equals(e.detail()) ? "上警竞选警长" : "未上警"));
+                case GameEvent.SHERIFF_WITHDRAW -> out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号退水（退出警长竞选）");
                 // 提示注入防护：真人发言/遗言为不可信文本，用定界标记包裹并声明其非指令性，防止被当作对 AI 的指令执行。
                 case GameEvent.SPEECH -> out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号发言："
                         + wrapUntrusted(e.detail()));
                 case GameEvent.LAST_WORDS -> out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号遗言："
                         + wrapUntrusted(e.detail()));
+                // 逐票去向：这是判断站边/抱团/冲票的核心依据，必须完整提供给 AI
+                case GameEvent.VOTE_DETAIL -> out.add("第" + e.day() + "天 票型·" + remapNumbers(e.detail(), showOf));
                 case GameEvent.VOTE_RESULT -> out.add("第" + e.day() + "天 投票：" + (e.actorSeat() != 0 ? sh(showOf, e.actorSeat()) + "号被放逐" : e.detail()));
                 case GameEvent.VOTE_TIE -> out.add("第" + e.day() + "天 " + e.detail());
                 case GameEvent.SHOOT -> out.add("第" + e.day() + "天 " + sh(showOf, e.actorSeat()) + "号 " + e.detail() + (e.targetSeat() != 0 ? " 带走 " + sh(showOf, e.targetSeat()) + "号" : ""));
@@ -101,6 +142,73 @@ public final class AiContextBuilder {
             }
         }
         return out;
+    }
+
+    /* ---------- 自身历史立场（连贯性锚点） ---------- */
+
+    /** 逐票去向 token，形如「3→5号」或「3→弃」。 */
+    private static final java.util.regex.Pattern VOTE_TOKEN =
+            java.util.regex.Pattern.compile("(\\d+)→(\\d+号|弃)");
+
+    /**
+     * 汇总「该 AI 自己」的历史表态：发过的言、投过的票。
+     * 目的是给它一个显式的自洽锚点——模型只看全场流水账时容易前后矛盾，
+     * 单独把「你自己说过什么、投过谁」拎出来，能显著减少改口与自我打脸。
+     */
+    private static List<String> ownHistory(GameEngine g, int seat, int[] showOf) {
+        List<String> out = new ArrayList<>();
+        for (GameEvent e : g.events()) {
+            switch (e.type()) {
+                case GameEvent.SPEECH -> {
+                    if (e.actorSeat() == seat) out.add("第" + e.day() + "天 你说过：" + clip(e.detail(), 60));
+                }
+                case GameEvent.LAST_WORDS -> {
+                    if (e.actorSeat() == seat) out.add("第" + e.day() + "天 你的遗言：" + clip(e.detail(), 60));
+                }
+                case GameEvent.VOTE_DETAIL -> {
+                    String v = voteOf(e.detail(), seat, showOf);
+                    if (v != null) out.add("第" + e.day() + "天 " + v);
+                }
+                default -> { /* 其它事件不属于“你的立场” */ }
+            }
+        }
+        // 只保留最近若干条，避免上下文过长反而稀释重点
+        int max = 12;
+        return out.size() <= max ? out : new ArrayList<>(out.subList(out.size() - max, out.size()));
+    }
+
+    /** 从票型明细里挑出该座位投出的那一票（seat 为真实座位，返回文本用显示号）。 */
+    private static String voteOf(String detail, int seat, int[] showOf) {
+        if (detail == null) return null;
+        String label = detail.contains("警长") ? "警长投票" : (detail.contains("PK") ? "PK投票" : "放逐投票");
+        java.util.regex.Matcher m = VOTE_TOKEN.matcher(detail);
+        while (m.find()) {
+            if (Integer.parseInt(m.group(1)) != seat) continue;
+            String t = m.group(2);
+            if ("弃".equals(t)) return label + "你弃票了";
+            int tgt = Integer.parseInt(t.substring(0, t.length() - 1));
+            return label + "你投给了 " + sh(showOf, tgt) + "号";
+        }
+        return null;
+    }
+
+    /** 把文本中的座位号按 showOf 置换（仅用于只含座位号的票型明细）。 */
+    private static String remapNumbers(String s, int[] showOf) {
+        if (s == null || showOf == null) return s;
+        java.util.regex.Matcher mt = java.util.regex.Pattern.compile("\\d+").matcher(s);
+        StringBuilder sb = new StringBuilder();
+        while (mt.find()) {
+            int n = Integer.parseInt(mt.group());
+            mt.appendReplacement(sb, String.valueOf(sh(showOf, n)));
+        }
+        mt.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String clip(String s, int max) {
+        if (s == null) return "";
+        String t = s.replaceAll("\\s+", " ").trim();
+        return t.length() <= max ? t : t.substring(0, max) + "…";
     }
 
     /**
@@ -135,7 +243,9 @@ public final class AiContextBuilder {
             case NIGHT_WITCH -> "夜晚·女巫行动"; case NIGHT_SEER -> "夜晚·预言家验人"; case NIGHT_CROW -> "夜晚·乌鸦行动";
             case NIGHT_SILENCER -> "夜晚·禁言长老行动"; case DAWN -> "天亮"; case SHERIFF_ELECTION -> "警长竞选";
             case LAST_WORDS -> "遗言"; case DAY_SPEAK -> "白天发言"; case DAY_VOTE -> "放逐投票";
-            case DAY_VOTE_TIEBREAK -> "平票PK"; case SHOOT -> "开枪"; case GAME_OVER -> "游戏结束";
+            case DAY_VOTE_TIEBREAK -> "平票PK"; case SHOOT -> "开枪"; case SHERIFF_TRANSFER -> "警徽移交";
+            case SHERIFF_ORDER -> "决定发言顺序";
+            case GAME_OVER -> "游戏结束";
         };
     }
 }

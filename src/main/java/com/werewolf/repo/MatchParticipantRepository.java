@@ -12,6 +12,9 @@ public interface MatchParticipantRepository extends JpaRepository<MatchParticipa
     /** 删除某用户的全部战绩记录（账号级联删除用）。 */
     void deleteByUserId(Long userId);
 
+    /** 某用户参与过的对局数（无用账号判定用）。 */
+    long countByUserId(Long userId);
+
     /** 按对局 id 查询全部参与者（回放越权校验用）。 */
     List<MatchParticipant> findByGameId(Long gameId);
 

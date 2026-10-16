@@ -35,7 +35,7 @@ public class GameController {
     }
 
     public record StartBody(Boolean allBots) {}
-    public record ActionBody(Integer target, Integer saveTarget, Integer poisonTarget, String text, Boolean signup) {}
+    public record ActionBody(Integer target, Integer saveTarget, Integer poisonTarget, String text, Boolean signup, Boolean withdraw) {}
 
     @PostMapping("/start")
     public ResponseEntity<?> start(@RequestHeader(value = "Authorization", required = false) String auth,
@@ -58,7 +58,7 @@ public class GameController {
             view.players().stream()
                     .sorted(Comparator.comparingInt(p -> p.userId() == host.getId() ? 0 : 1))
                     .forEach(p -> seats.add(new SeatInfo(p.seat(), p.userId(), p.nickname(), p.avatarId(),
-                            p.ai(), p.avatarUrl(), p.nickColor(), p.frameColor(), p.title(), p.vip())));
+                            p.ai(), p.avatarUrl(), p.nickColor(), p.frameColor(), p.title(), p.vip(), p.skin3d())));
         }
         int roomCount = view.players().size();
         // 优先用房主设置的板子；否则按人数自动选预设
@@ -81,7 +81,7 @@ public class GameController {
         boolean anonymous = room.isAnonymous() || voiceMode; // 语音模式强制匿名伪装以藏 AI
         boolean huntByBorder = !room.isHuntCity(); // 屠边（默认）或数量规则（屠城向，房主在对局模式切换）
         gameService.start(room.getId(), room.getRoomNo(), seats, board, allBots, huntByBorder, System.nanoTime(),
-                voiceMode, anonymous, room.isItemMatch(), host.getId(), roomService.duosOf(room.getId()));
+                voiceMode, anonymous, room.isItemMatch(), host.getId(), false);
         return ok(Map.of("ok", true, "roomNo", room.getRoomNo(), "board", board.toString(),
                 "voiceMode", voiceMode, "anonymous", anonymous));
     }
@@ -111,6 +111,7 @@ public class GameController {
         ga.poisonTarget = body.poisonTarget() == null ? 0 : body.poisonTarget();
         ga.text = body.text();
         ga.signup = Boolean.TRUE.equals(body.signup());
+        ga.withdraw = Boolean.TRUE.equals(body.withdraw());
         String error = gameService.applyHumanAction(roomOpt.get().getId(), u.get().getId(), ga);
         if (error != null) return err(error);
         return ok(Map.of("ok", true));
@@ -133,14 +134,40 @@ public class GameController {
         Optional<User> u = resolve(auth);
         if (u.isEmpty()) return err("未登录或会话已过期");
         Optional<Room> roomOpt = roomService.findRoomOfUser(u.get().getId());
+        // 观战者没有座位记录：回退到「正在观战的房间」，否则观战席拉不到对局视图
+        if (roomOpt.isEmpty()) roomOpt = roomService.findWatchedRoom(u.get().getId());
         if (roomOpt.isEmpty()) return err("你不在任何房间");
         Map<String, Object> v = gameService.viewFor(roomOpt.get().getId(), u.get().getId());
         if (v == null) return err("本房间无进行中的对局");
         return ResponseEntity.ok(v);
     }
 
-    /* ---------- 板子选择 ---------- */
+    /** 夜晚狼队内部交流：只有存活的狼能发/能收，且不写入对局记录。 */
+    @PostMapping("/wolf-chat")
+    public ResponseEntity<?> wolfChat(@RequestHeader(value = "Authorization", required = false) String auth,
+                                      @RequestBody ActionBody body) {
+        Optional<User> u = resolve(auth);
+        if (u.isEmpty()) return err("未登录或会话已过期");
+        Optional<Room> roomOpt = roomService.findRoomOfUser(u.get().getId());
+        if (roomOpt.isEmpty()) return err("你不在任何房间");
+        String error = gameService.wolfChat(roomOpt.get().getId(), u.get().getId(), body.text());
+        if (error != null) return err(error);
+        return ok(Map.of("ok", true));
+    }
 
+    /** AI 总结本局对话内容：只归纳「谁说了什么」，不分析局面（对局记录面板的「AI 总结」按钮）。 */
+    @PostMapping("/feed-summary")
+    public ResponseEntity<?> feedSummary(@RequestHeader(value = "Authorization", required = false) String auth) {
+        Optional<User> u = resolve(auth);
+        if (u.isEmpty()) return err("未登录或会话已过期");
+        Optional<Room> roomOpt = roomService.findRoomOfUser(u.get().getId());
+        if (roomOpt.isEmpty()) roomOpt = roomService.findWatchedRoom(u.get().getId());
+        if (roomOpt.isEmpty()) return err("你不在任何房间");
+        String summary = gameService.summarizeFeed(roomOpt.get().getId());
+        return ok(Map.of("ok", true, "summary", summary == null ? "" : summary));
+    }
+
+    /* ---------- 板子选择 ---------- */
     /** 按人数自动生成一副合法且平衡的板子（6~24 人）：狼约 1/4（≤6 且 < 好人），尽量铺满神职，其余平民。 */
     private BoardConfig boardFor(int total) {
         if (total < 6 || total > 24) return null;

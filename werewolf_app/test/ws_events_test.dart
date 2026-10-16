@@ -74,6 +74,33 @@ void main() {
     });
   });
 
+  group('狼队频道 game.wolfchat', () {
+    test('入 wolfChat 而不是公开聊天，且带 kind=wolf', () {
+      final s = newStore();
+      s.handleWsEvent({'type': 'game.wolfchat', 'room': 7, 'seat': 4, 'name': '4号', 'text': '刀 3 号'});
+      expect(s.gameChat, isEmpty);
+      expect(s.wolfChat.single.text, '刀 3 号');
+      expect(s.wolfChat.single.seat, 4);
+      expect(s.wolfChat.single.kind, 'wolf');
+    });
+
+    test('与公开聊天各自计数、互不挤占（各 200 上限）', () {
+      final s = newStore();
+      for (var i = 0; i < 260; i++) {
+        s.handleWsEvent({'type': 'game.wolfchat', 'seat': 1, 'name': 'A', 'text': 'w$i'});
+      }
+      expect(s.wolfChat.length, 200);
+      expect(s.wolfChat.last.text, 'w259');
+      expect(s.gameChat, isEmpty);
+    });
+
+    test('字段缺失不抛', () {
+      final s = newStore();
+      expect(() => s.handleWsEvent({'type': 'game.wolfchat'}), returnsNormally);
+      expect(s.wolfChat.single.text, '');
+    });
+  });
+
   group('未读与红点', () {
     test('私聊：入 livePrivate、未读 +1、浮层显示"谁说什么"', () {
       final s = newStore();
@@ -144,6 +171,22 @@ void main() {
       expect(s.notices.length, 6);
       expect(s.notices.last.text, 'A：m11');
     });
+
+    test('support.update 只给面板发刷新信号，不弹浮层打扰用户', () {
+      final s = newStore();
+      s.handleWsEvent({'type': 'support.update', 'id': 3, 'at': '2026-01-01T00:00:00'});
+      expect(s.supportTick, 1);
+      expect(s.notices, isEmpty);
+      s.handleWsEvent({'type': 'support.update', 'id': 3});
+      expect(s.supportTick, 2);
+    });
+
+    test('support.escalated 是发给管理员的转人工提醒', () {
+      final s = newStore();
+      s.handleWsEvent({'type': 'support.escalated', 'ticketId': 12, 'fromName': '阿尔法'});
+      expect(s.notices.single.kind, 'warn');
+      expect(s.notices.single.text, contains('#12'));
+    });
   });
 
   group('房间与对局的清理', () {
@@ -172,9 +215,18 @@ void main() {
     test('game.ended 清掉对局文字流', () {
       final s = newStore();
       s.handleWsEvent({'type': 'game.chat', 'seat': 1, 'name': 'A', 'text': 'hi'});
+      s.handleWsEvent({'type': 'game.wolfchat', 'seat': 2, 'name': 'B', 'text': 'wolf'});
       s.handleWsEvent({'type': 'game.ended', 'reason': 'WOLVES_WIN', 'forced': false});
       expect(s.game, isNull);
       expect(s.gameChat, isEmpty);
+      expect(s.wolfChat, isEmpty);
+    });
+
+    test('被踢也清掉狼队频道（下局不该看到上局的狼队记录）', () {
+      final s = newStore();
+      s.handleWsEvent({'type': 'game.wolfchat', 'seat': 2, 'name': 'B', 'text': 'wolf'});
+      s.handleWsEvent({'type': 'room.kicked', 'message': '你被房主移出房间'});
+      expect(s.wolfChat, isEmpty);
     });
   });
 

@@ -2,20 +2,9 @@ package com.werewolf.api;
 
 import com.werewolf.model.GoldTransaction;
 import com.werewolf.model.User;
-import com.werewolf.model.UserTicket;
-import com.werewolf.repo.FriendRequestRepository;
-import com.werewolf.repo.GameKudosRepository;
-import com.werewolf.repo.FriendshipRepository;
 import com.werewolf.repo.GoldTransactionRepository;
-import com.werewolf.repo.InventoryRepository;
-import com.werewolf.repo.MatchParticipantRepository;
-import com.werewolf.repo.PrivateMessageRepository;
-import com.werewolf.repo.RedeemUsageRepository;
-import com.werewolf.repo.RoleStatRepository;
-import com.werewolf.repo.RoomPlayerRepository;
-import com.werewolf.repo.TicketReplyRepository;
 import com.werewolf.repo.UserRepository;
-import com.werewolf.repo.UserTicketRepository;
+import com.werewolf.service.AdminCleanupService;
 import com.werewolf.service.AuthService;
 import com.werewolf.service.PresenceService;
 import com.werewolf.service.VipService;
@@ -38,45 +27,20 @@ public class AdminUserController {
     private final UserRepository users;
     private final PresenceService presence;
     private final AuthService authService;
-    private final RoomPlayerRepository roomPlayers;
-    private final FriendshipRepository friendships;
-    private final FriendRequestRepository friendRequests;
-    private final PrivateMessageRepository messages;
     private final VipService vipService;
     private final GoldTransactionRepository goldRepo;
-    // 级联删除所需的其余仓库
-    private final MatchParticipantRepository matchParticipants;
-    private final RoleStatRepository roleStats;
-    private final InventoryRepository inventories;
-    private final RedeemUsageRepository redeemUsages;
-    private final UserTicketRepository userTickets;
-    private final TicketReplyRepository ticketReplies;
-    private final GameKudosRepository gameKudos;
+    /** 账号级联删除统一由清理服务提供，避免多处重复实现。 */
+    private final AdminCleanupService cleanup;
 
     public AdminUserController(UserRepository users, PresenceService presence, AuthService authService,
-                               RoomPlayerRepository roomPlayers, FriendshipRepository friendships,
-                               FriendRequestRepository friendRequests, PrivateMessageRepository messages,
                                VipService vipService, GoldTransactionRepository goldRepo,
-                               MatchParticipantRepository matchParticipants, RoleStatRepository roleStats,
-                               InventoryRepository inventories, RedeemUsageRepository redeemUsages,
-                               UserTicketRepository userTickets, TicketReplyRepository ticketReplies,
-                               GameKudosRepository gameKudos) {
+                               AdminCleanupService cleanup) {
         this.users = users;
         this.presence = presence;
         this.authService = authService;
-        this.roomPlayers = roomPlayers;
-        this.friendships = friendships;
-        this.friendRequests = friendRequests;
-        this.messages = messages;
         this.vipService = vipService;
         this.goldRepo = goldRepo;
-        this.matchParticipants = matchParticipants;
-        this.roleStats = roleStats;
-        this.inventories = inventories;
-        this.redeemUsages = redeemUsages;
-        this.userTickets = userTickets;
-        this.ticketReplies = ticketReplies;
-        this.gameKudos = gameKudos;
+        this.cleanup = cleanup;
     }
 
     public record FlagBody(boolean value) {}
@@ -248,34 +212,9 @@ public class AdminUserController {
         return after;
     }
 
-    /** 删除账户（批量用）：级联清理座位/好友/申请/私聊/战绩/流水/统计/背包/兑换/工单，并踢下线。 */
+    /** 删除账户（批量用）：委托清理服务做级联清理（座位/好友/申请/私聊/战绩/流水/统计/背包/兑换/工单）并踢下线。 */
     private void cascadeDelete(long id) {
-        authService.revokeSessions(id);
-        roomPlayers.deleteByUserId(id);
-        friendships.deleteByUserId(id);
-        friendships.deleteByFriendId(id);
-        friendRequests.deleteByFromId(id);
-        friendRequests.deleteByToId(id);
-        messages.deleteByFromId(id);
-        messages.deleteByToId(id);
-        // 追加：战绩、金币流水、角色统计、背包、兑换记录
-        matchParticipants.deleteByUserId(id);
-        goldRepo.deleteByUserId(id);
-        roleStats.deleteByUserId(id);
-        inventories.deleteByUserId(id);
-        redeemUsages.deleteByUserId(id);
-        // 工单：先按 reporterId 找到该用户所有工单，删除其下全部回复，再删工单本身；
-        // 同时删除该用户作为作者发出的回复（如管理员回复他人工单）。
-        List<UserTicket> tickets = userTickets.findByReporterIdOrderByIdDesc(id);
-        List<Long> ticketIds = new ArrayList<>();
-        for (UserTicket t : tickets) ticketIds.add(t.getId());
-        if (!ticketIds.isEmpty()) ticketReplies.deleteByTicketIdIn(ticketIds);
-        ticketReplies.deleteByAuthorId(id);
-        userTickets.deleteByReporterId(id);
-        // 结算页互动记录：清理该用户发出与收到的全部点赞/安慰/举报，避免孤儿数据
-        gameKudos.deleteByFromUserId(id);
-        gameKudos.deleteByToUserId(id);
-        users.deleteById(id);
+        cleanup.cascadeDeleteUser(id);
     }
 
     public record EditBody(String nickname, Integer level, Long exp, Long gold) {}

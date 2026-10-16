@@ -100,33 +100,6 @@ public class UserController {
 
     public record ProfileInfoBody(String birthday, String location, String regLocation, String signature) {}
 
-    public record QqBody(String qq) {}
-
-    /**
-     * 设置/补填 QQ 号：保存并尝试拉取 QQ 头像；首次补填奖励 1000 金币（一次性）。
-     * 返回 {ok, rewarded, gold_balance, avatarUrl}；错误返回 {error}。
-     */
-    @PostMapping("/qq")
-    @org.springframework.transaction.annotation.Transactional
-    public ResponseEntity<?> setQq(@RequestHeader(value = "Authorization", required = false) String auth,
-                                   @RequestBody QqBody body) {
-        Optional<User> u = resolve(auth);
-        if (u.isEmpty()) return err("未登录或会话已过期");
-        User user = u.get();
-        Object[] r = profileService.setQq(user, body.qq());
-        String error = (String) r[0];
-        if (error != null) return err(error);
-        User fresh = userRepo.findById(user.getId()).orElse(user);
-        Map<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("ok", true);
-        out.put("rewarded", r[1]);
-        out.put("qq", fresh.getQq());
-        out.put("avatarUrl", fresh.getAvatarUrl());
-        out.put("gold_balance", fresh.getGold());
-        out.put("needQq", false);
-        return ResponseEntity.ok(out);
-    }
-
     @PostMapping("/profile-info")
     public ResponseEntity<?> profileInfo(@RequestHeader(value = "Authorization", required = false) String auth,
                                          @RequestBody ProfileInfoBody body) {

@@ -55,7 +55,7 @@ void main() {
           }
           if (p == '/api/admin/system/features') {
             return jsonEncode({
-              'flags': {for (final f in ['quickai', 'spectate', 'shop', 'friends', 'forum', 'ranking', 'checkin', 'news', 'tickets', 'download', 'guide', 'voiceMode', 'duo', 'items', 'invite', 'addai']) f: true}
+              'flags': {for (final f in ['quickai', 'spectate', 'shop', 'friends', 'forum', 'ranking', 'checkin', 'news', 'tickets', 'download', 'guide', 'voiceMode', 'items', 'invite', 'addai']) f: true}
             });
           }
           if (p == '/api/admin/system/display') return jsonEncode({'webMaxHeight': 0});

@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 我的背包：GET /api/shop/inventory
 /// 注意与商店目录的字段差异——背包项用 **itemDefId**（目录用 id），且没有价格/描述/owned；
@@ -63,7 +64,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (!store.feat('shop')) {
-      return const Scaffold(body: Center(child: Text('商店与背包已被管理员关闭', style: TextStyle(color: kDim))));
+      return Scaffold(body: Center(child: Tx('商店与背包已被管理员关闭', style: TextStyle(color: kDim))));
     }
     final groups = <String, List<dynamic>>{};
     for (final it in _items) {
@@ -71,7 +72,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的背包'),
+        title: const Tx('我的背包'),
         actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
       ),
       body: StateBox(
@@ -101,18 +102,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
         dense: true,
         leading: CircleAvatar(
           backgroundColor: kPanel2,
-          child: Text(functional ? '✨' : '👤', style: const TextStyle(fontSize: 16)),
+          child: Tx(functional ? '✨' : '👤', style: const TextStyle(fontSize: 16)),
         ),
-        title: Text('${it['name'] ?? ''}', style: const TextStyle(color: kMoon, fontSize: 14)),
-        subtitle: Text('资产标识 ${it['asset'] ?? '—'}', style: const TextStyle(color: kDim, fontSize: 11.5)),
+        title: Tx('${it['name'] ?? ''}', style: TextStyle(color: kMoon, fontSize: 14)),
+        subtitle: Tx('资产标识 ${it['asset'] ?? '—'}', style: TextStyle(color: kDim, fontSize: 11.5)),
         trailing: functional
             ? TextButton(
                 onPressed: () => _act('/api/user/carry', {'itemDefId': defId}, '已设为带入下一局'),
-                child: const Text('带入'),
+                child: const Tx('带入'),
               )
             : TextButton(
                 onPressed: () => _act('/api/user/equip', {'itemDefId': defId}, '已装备'),
-                child: const Text('装备'),
+                child: const Tx('装备'),
               ),
       ),
     );

@@ -31,6 +31,13 @@ public class AdminTicketController {
         return ResponseEntity.ok(ticketService.adminList(status, category));
     }
 
+    /** 查看工单完整对话（含「在线客服」自动答复与人工回复），供后台客服直接接手聊天。 */
+    @GetMapping("/{id}")
+    public ResponseEntity<?> thread(@PathVariable long id) {
+        Map<String, Object> t = ticketService.thread(id, 0L, true);
+        return t == null ? ResponseEntity.badRequest().body(Map.of("error", "工单不存在")) : ResponseEntity.ok(t);
+    }
+
     @PostMapping("/{id}/reply")
     public ResponseEntity<?> reply(@RequestHeader(value = "Authorization", required = false) String auth,
                                    @PathVariable long id, @RequestBody ReplyBody body) {

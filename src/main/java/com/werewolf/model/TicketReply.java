@@ -22,6 +22,10 @@ public class TicketReply {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean admin = false;
 
+    /** 是否由「在线客服」自动生成（AI 客服）。用于前端区分「在线客服 / 人工客服 / 玩家」。 */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean ai = false;
+
     // 回复内容有明确长度上限，去掉 @Lob 避免被 Hibernate 当作无长度限制的 CLOB
     @Column(length = 4000)
     private String content;
@@ -37,6 +41,8 @@ public class TicketReply {
     public void setAuthorId(Long authorId) { this.authorId = authorId; }
     public boolean isAdmin() { return admin; }
     public void setAdmin(boolean admin) { this.admin = admin; }
+    public boolean isAi() { return ai; }
+    public void setAi(boolean ai) { this.ai = ai; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     public LocalDateTime getCreatedAt() { return createdAt; }

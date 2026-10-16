@@ -70,6 +70,17 @@ public class ShopCatalog implements ApplicationRunner {
         n += add("TITLE", "ti_nightking", "夜之王", "月夜之下，唯我独尊", 1500, "夜之王");
         n += add("TITLE", "ti_lone", "孤影", "独来独往的夜行者", 620, "孤影");
         n += add("NICKCOLOR", "nc_neon", "霓虹", "炫目的霓虹粉紫昵称", 400, "#ff6fd8");
+        // 3D 皮肤（对局页「3D 视角」里的角色造型；asset 为造型标识；默认造型为村民，无需购买）
+        n += add("SKIN3D", "sk_jester", "疯癫弄臣", "红黄双色的尖顶小丑帽，走到哪都自带笑声", 600, "jester");
+        n += add("SKIN3D", "sk_ghost", "游魂", "半透明的漂浮幽魂，脚下没有影子", 700, "ghost");
+        n += add("SKIN3D", "sk_wolf", "狼影", "灰毛狼首与尖耳，站在人群里也藏不住野性", 800, "wolf");
+        n += add("SKIN3D", "sk_knight", "铁卫骑士", "银甲与全罩头盔，只露出一线目光", 900, "knight");
+        n += add("SKIN3D", "sk_witch", "月影女巫", "紫袍与尖顶巫师帽，袖口缀着星屑", 1000, "witch");
+        n += add("SKIN3D", "sk_frost", "霜灵", "冰蓝晶体凝成的身躯，周身浮着寒气", 1100, "frost");
+        n += add("SKIN3D", "sk_vampire", "血族伯爵", "黑红斗篷与苍白面容，颈间一抹猩红", 1200, "vampire");
+        n += add("SKIN3D", "sk_shadow", "影舞者", "暗紫身躯与一对影翼，在月光照不到处起舞", 1400, "shadow");
+        n += add("SKIN3D", "sk_royal", "王族", "金冠与赤红长袍，连坐下都带着威仪", 1500, "royal");
+        n += add("SKIN3D", "sk_reaper", "死神", "兜帽下的空洞面孔，肩扛一柄镰刀", 2000, "reaper");
         if (n > 0) log.info("商品目录补种完成，新增 {} 件", n);
     }
 

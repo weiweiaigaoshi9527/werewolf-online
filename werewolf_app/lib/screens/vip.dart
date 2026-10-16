@@ -4,6 +4,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 会员中心：查看当前 VIP 与折扣，用金币开通 / 续费。
 class VipScreen extends StatefulWidget {
@@ -57,10 +58,10 @@ class _VipScreenState extends State<VipScreen> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: kPanel,
-        content: Text(msg, style: const TextStyle(color: kText)),
+        content: Tx(msg, style: TextStyle(color: kText)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('确定')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Tx('取消')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Tx('确定')),
         ],
       ),
     );
@@ -71,7 +72,7 @@ class _VipScreenState extends State<VipScreen> {
   Widget build(BuildContext context) {
     final tiers = (_info['tiers'] as List?) ?? const [];
     return Scaffold(
-      appBar: AppBar(title: const Text('会员中心')),
+      appBar: AppBar(title: const Tx('会员中心')),
       body: StateBox(
         loading: _loading,
         error: _error,
@@ -85,10 +86,10 @@ class _VipScreenState extends State<VipScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Text(_info['active'] == true ? '👑 ${_info['name']}' : '普通玩家',
-                          style: const TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+                      Tx(_info['active'] == true ? '👑 ${_info['name']}' : '普通玩家',
+                          style: TextStyle(color: kAccent, fontSize: 18, fontWeight: FontWeight.bold)),
                       const Spacer(),
-                      Text('💰 ${_info['gold'] ?? 0}', style: const TextStyle(color: kDim)),
+                      Tx('💰 ${_info['gold'] ?? 0}', style: TextStyle(color: kDim)),
                     ]),
                     const SizedBox(height: 8),
                     InfoRow('状态', _info['active'] == true ? '生效中' : '未开通', valueColor: _info['active'] == true ? kGreen : kDim),
@@ -105,17 +106,17 @@ class _VipScreenState extends State<VipScreen> {
               Card(
                 margin: const EdgeInsets.symmetric(vertical: 6),
                 child: ListTile(
-                  title: Text(t['name'] ?? '', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
-                  subtitle: Text('${t['price']} 金 / ${t['days']} 天 · 折扣 ${(((t['discount'] ?? 1.0) as num) * 100).round()}% · 签到 +${t['checkinBonusPct']}%',
-                      style: const TextStyle(color: kDim, fontSize: 12.5)),
+                  title: Tx(t['name'] ?? '', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                  subtitle: Tx('${t['price']} 金 / ${t['days']} 天 · 折扣 ${(((t['discount'] ?? 1.0) as num) * 100).round()}% · 签到 +${t['checkinBonusPct']}%',
+                      style: TextStyle(color: kDim, fontSize: 12.5)),
                   trailing: FilledButton(
                     onPressed: () => _buy((t['level'] as num).toInt(), '${t['name']}'),
-                    child: const Text('开通'),
+                    child: const Tx('开通'),
                   ),
                 ),
               ),
             const SizedBox(height: 10),
-            const Text('VIP 折扣在商店购买时自动生效；签到额外奖励同步提高。',
+            Tx('VIP 折扣在商店购买时自动生效；签到额外奖励同步提高。',
                 style: TextStyle(color: kDim, fontSize: 12, height: 1.5)),
           ],
         ),

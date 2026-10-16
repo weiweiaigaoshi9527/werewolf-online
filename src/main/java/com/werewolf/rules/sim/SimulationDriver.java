@@ -42,10 +42,23 @@ public class SimulationDriver {
                         g.submitShoot(seat, policy.shootTarget(g, g.bySeat(seat), rnd));
                     }
                     case LAST_WORDS -> g.submitLastWords(g.currentLastWords(), "（遗言）");
+                    case SHERIFF_TRANSFER -> g.submitSheriffTransfer(0);   // 模拟器：默认撕毁警徽
+                    case SHERIFF_ORDER -> {
+                        // 模拟器：默认从警右（座位号更大的下一位）开始发言
+                        List<Integer> seats = g.alive().stream().map(se -> se.seat).sorted().toList();
+                        int idx = seats.indexOf(g.sheriffSeat());
+                        g.submitSheriffOrder(seats.isEmpty() ? 0 : seats.get(idx < 0 ? 0 : (idx + 1) % seats.size()));
+                    }
                     case SHERIFF_ELECTION -> {
                         if (g.sheriffSignupActive()) {
                             int seat = g.sheriffSignupCursor();
                             g.submitSheriffSignup(seat, policy.sheriffSignup(g, g.bySeat(seat), rnd));
+                        } else if (g.sheriffSpeechActive()) {
+                            // 竞选发言：只有上警者发言
+                            g.submitSpeech(g.currentSheriffSpeaker(), "（竞选发言）");
+                        } else if (g.sheriffWithdrawActive()) {
+                            int seat = g.currentSheriffWithdrawer();
+                            g.submitSheriffWithdraw(seat, policy.sheriffWithdraw(g, g.bySeat(seat), rnd));
                         } else {
                             int voter = g.nextSheriffVoter();
                             if (voter == 0) return fail(g, "DEADLOCK: 警长投票无选民");

@@ -18,6 +18,8 @@ public interface PlayerPolicy {
     int crowTarget(GameEngine g, Player me, Random rnd);
     int silencerTarget(GameEngine g, Player me, Random rnd);
     boolean sheriffSignup(GameEngine g, Player me, Random rnd);
+    /** 退水环节：是否退出警长竞选（true=退水，退水后不再参与警长投票）。 */
+    boolean sheriffWithdraw(GameEngine g, Player me, Random rnd);
     int sheriffVote(GameEngine g, Player me, List<Integer> candidates, Random rnd);
     void speak(GameEngine g, Player me, Random rnd);
     int exileVote(GameEngine g, Player me, Random rnd);

@@ -8,6 +8,7 @@ import '../api.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
+import '../i18n.dart';
 
 /// 批量用户操作的请求体（纯函数，便于单测）。
 ///
@@ -46,6 +47,36 @@ Map<String, dynamic> redeemBody({
     if (expireAt != null && expireAt.isNotEmpty) 'expireAt': expireAt,
     if (note != null && note.isNotEmpty) 'note': note,
   };
+}
+
+/// 一键清理的请求体（纯函数，便于单测）。
+///
+/// 字段名逐字照抄后端 `CleanupBody` record，**不是**「房间最小存活时长」这类意译：
+/// `rooms` / `accounts` / `roomIdleHours` / `accountMinAgeHours` / `accountMaxLevel` /
+/// `accountMaxGames`，写错名字后端就当没传、静默按默认值走。
+/// 阈值默认值也与后端一致：房间闲置 1 小时、账号注册满 72 小时、等级 ≤ 1、对局数 ≤ 0。
+/// run 的语义：rooms 缺省即 true，accounts 缺省即 false；两者都为 false 会被 400 拒绝。
+Map<String, dynamic> cleanupBody({
+  bool rooms = true,
+  bool accounts = false,
+  int? roomIdleHours,
+  int? accountMinAgeHours,
+  int? accountMaxLevel,
+  int? accountMaxGames,
+}) =>
+    {
+      'rooms': rooms,
+      'accounts': accounts,
+      'roomIdleHours': roomIdleHours ?? 1,
+      'accountMinAgeHours': accountMinAgeHours ?? 72,
+      'accountMaxLevel': accountMaxLevel ?? 1,
+      'accountMaxGames': accountMaxGames ?? 0,
+    };
+
+/// 清理阈值输入框的解析：空串/非数字/负数一律回落默认值（网页端 `clOptions` 的 `|| 默认`）。
+int cleanupNum(String raw, int def) {
+  final v = int.tryParse(raw.trim());
+  return (v != null && v >= 0) ? v : def;
 }
 
 /// 把日期格式化成 `yyyy-MM-dd`（配合当日 23:59:59 拼出后端要的 ISO 本地日期时间）。
@@ -94,26 +125,27 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (store.user?['admin'] != true) {
-      return const Scaffold(
-        body: Center(child: Text('需要管理员权限', style: TextStyle(color: kDim))),
+      return Scaffold(
+        body: Center(child: Tx('需要管理员权限', style: TextStyle(color: kDim))),
       );
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('后台管理'),
+        title: const Tx('后台管理'),
         bottom: TabBar(
           controller: _tabs!,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
+          // Tab 的 text 是纯字符串、不经过 Tx，拿不到译文；用 child: Tx 才与其他页面一致。
           tabs: const [
-            Tab(text: '概览'),
-            Tab(text: '用户'),
-            Tab(text: '房间'),
-            Tab(text: '工单'),
-            Tab(text: '兑换码'),
-            Tab(text: '论坛'),
-            Tab(text: '系统'),
-            Tab(text: '语音·AI'),
+            Tab(child: Tx('概览')),
+            Tab(child: Tx('用户')),
+            Tab(child: Tx('房间')),
+            Tab(child: Tx('工单')),
+            Tab(child: Tx('兑换码')),
+            Tab(child: Tx('论坛')),
+            Tab(child: Tx('系统')),
+            Tab(child: Tx('语音·AI')),
           ],
         ),
       ),
@@ -182,23 +214,23 @@ abstract class _AdminSectionState<T extends _AdminSection> extends State<T> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: kPanel,
-        title: Text('⚠️ $title'),
+        title: Tx('⚠️ $title'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(detail, style: const TextStyle(height: 1.5)),
+            Tx(detail, style: const TextStyle(height: 1.5)),
             const SizedBox(height: 12),
-            Text('服务端没有二次确认参数，收到即执行。请输入「$word」继续：',
-                style: const TextStyle(color: kBlood, fontSize: 12.5)),
-            TextField(controller: c, decoration: InputDecoration(hintText: word)),
+            Tx('服务端没有二次确认参数，收到即执行。请输入「$word」继续：',
+                style: TextStyle(color: kBlood, fontSize: 12.5)),
+            TextField(controller: c, decoration: InputDecoration(hintText: tr(word))),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Tx('取消')),
           FilledButton(
             onPressed: () => Navigator.pop(context, c.text.trim() == word),
-            child: const Text('继续'),
+            child: const Tx('继续'),
           ),
         ],
       ),
@@ -228,6 +260,170 @@ class _Overview extends _AdminSection {
 class _OverviewState extends _AdminSectionState<_Overview> {
   Map<String, dynamic> _sys = const {};
   Map<String, dynamic> _online = const {};
+
+  // ---- 一键清理（/api/admin/ops/cleanup/scan|run）----
+  // 阈值输入框与网页端 clOptions() 一一对应：空/非法一律回落默认值（1 / 72 / 1 / 0）。
+  final _clRoomHours = TextEditingController(text: '1');
+  final _clAccHours = TextEditingController(text: '72');
+  final _clAccLevel = TextEditingController(text: '1');
+  final _clAccGames = TextEditingController(text: '0');
+  bool _clBusy = false;
+  Map<String, dynamic>? _clResult;
+
+  @override
+  void dispose() {
+    _clRoomHours.dispose();
+    _clAccHours.dispose();
+    _clAccLevel.dispose();
+    _clAccGames.dispose();
+    super.dispose();
+  }
+
+  /// 把当前输入框与目标勾选拼成请求体（默认值/字段名的真值见 [cleanupBody]）。
+  Map<String, dynamic> _clOptions({bool rooms = true, bool accounts = false}) => cleanupBody(
+        rooms: rooms,
+        accounts: accounts,
+        roomIdleHours: cleanupNum(_clRoomHours.text, 1),
+        accountMinAgeHours: cleanupNum(_clAccHours.text, 72),
+        accountMaxLevel: cleanupNum(_clAccLevel.text, 1),
+        accountMaxGames: cleanupNum(_clAccGames.text, 0),
+      );
+
+  /// 预览：后端 scan 恒扫描两类，rooms/accounts 只是透传，不影响结果。
+  Future<void> _clScan(bool rooms, bool accounts) async {
+    final api = context.read<AppStore>().api;
+    setState(() => _clBusy = true);
+    try {
+      final d = await api
+          .post('/api/admin/ops/cleanup/scan', _clOptions(rooms: rooms, accounts: accounts));
+      if (mounted) setState(() => _clResult = d);
+    } on AppError catch (e) {
+      if (mounted) snack(context, e.message, error: true);
+    }
+    if (mounted) setState(() => _clBusy = false);
+  }
+
+  /// 执行：不可撤销，沿用本端「危险操作必须输入确认词」的约定。
+  Future<void> _clRun(bool rooms, bool accounts) async {
+    final what = [if (rooms) '无用房间', if (accounts) '无用账号'].join(' + ');
+    final ok = await danger('一键清理',
+        '确认清理【$what】？\n\n按当前阈值命中的房间/账号将被永久删除，且不可撤销。\n建议先「预览」核对清单。');
+    if (!ok || !mounted) return;
+    final api = context.read<AppStore>().api;
+    setState(() => _clBusy = true);
+    try {
+      final d = await api
+          .post('/api/admin/ops/cleanup/run', _clOptions(rooms: rooms, accounts: accounts));
+      if (!mounted) return;
+      setState(() => _clResult = d);
+      final rd = (d['rooms'] as Map?)?['deleted'] ?? 0;
+      final ad = (d['accounts'] as Map?)?['deleted'] ?? 0;
+      snack(context, '已清理：房间 $rd 间、账号 $ad 个');
+    } on AppError catch (e) {
+      if (mounted) snack(context, e.message, error: true);
+    }
+    if (mounted) setState(() => _clBusy = false);
+  }
+
+  /// 后端给的是 ISO 本地时间（2026-10-16T20:31:00），按网页端一样截到分钟。
+  String _clTime(Object? v) {
+    final s = '${v ?? ''}'.replaceFirst('T', ' ');
+    return s.length > 16 ? s.substring(0, 16) : s;
+  }
+
+  Widget _clField(TextEditingController c, double width) => SizedBox(
+        width: width,
+        child: TextField(
+          controller: c,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(fontSize: 13),
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+        ),
+      );
+
+  /// 命中的清单表（最多展示 100 行，与网页端 clTable 一致）。
+  Widget _clTable(List<String> head, List<List<String>> rows) {
+    if (rows.isEmpty) {
+      return Tx('命中 0 条', style: TextStyle(color: kFaint, fontSize: 12));
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowHeight: 28,
+        dataRowMinHeight: 24,
+        dataRowMaxHeight: 30,
+        columnSpacing: 16,
+        horizontalMargin: 6,
+        headingTextStyle: TextStyle(color: kDim, fontSize: 11.5, fontWeight: FontWeight.bold),
+        dataTextStyle: TextStyle(color: kText, fontSize: 11.5),
+        columns: [for (final h in head) DataColumn(label: Tx(h))],
+        rows: [
+          for (final r in rows)
+            DataRow(cells: [
+              for (final c in r)
+                DataCell(Tx(c, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _clResultView() {
+    final d = _clResult;
+    if (d == null) return const SizedBox.shrink();
+    final rooms = (d['rooms'] as Map?) ?? const {};
+    final accs = (d['accounts'] as Map?) ?? const {};
+    final rItems = ((rooms['items'] as List?) ?? const []).cast<Map>();
+    final aItems = ((accs['items'] as List?) ?? const []).cast<Map>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Tx('无用房间：命中 ${rooms['count'] ?? 0} 间'
+            '${rooms['deleted'] != null ? '，已删除 ${rooms['deleted']} 间' : ''}',
+            style: TextStyle(color: kText, fontSize: 13)),
+        _clTable(
+          const ['房间号', '状态', '房主', '人数', '类型', '创建'],
+          [
+            for (final r in rItems.take(100))
+              [
+                '${r['roomNo'] ?? ''}',
+                '${r['status'] ?? ''}',
+                '${r['hostName'] ?? ''}',
+                '${r['playerCount'] ?? 0}',
+                r['aiOnly'] == true ? 'AI 观战' : '普通',
+                _clTime(r['createdAt']),
+              ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        Tx('无用账号：命中 ${accs['count'] ?? 0} 个'
+            '${accs['deleted'] != null ? '，已删除 ${accs['deleted']} 个' : ''}',
+            style: TextStyle(color: kText, fontSize: 13)),
+        _clTable(
+          const ['ID', '用户名', '昵称', '等级', '金币', '对局', '注册'],
+          [
+            for (final u in aItems.take(100))
+              [
+                '${u['id'] ?? ''}',
+                '${u['username'] ?? ''}',
+                '${u['nickname'] ?? ''}',
+                '${u['level'] ?? 0}',
+                '${u['gold'] ?? 0}',
+                '${u['games'] ?? 0}',
+                _clTime(u['createdAt']),
+              ],
+          ],
+        ),
+        if (rItems.length > 100 || aItems.length > 100)
+          Tx('（仅显示前 100 条）', style: TextStyle(color: kFaint, fontSize: 11.5)),
+      ],
+    );
+  }
 
   @override
   String get listPath => '/api/admin/ops/online';
@@ -266,8 +462,8 @@ class _OverviewState extends _AdminSectionState<_Overview> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('服务 v${_sys['version'] ?? '?'} · ${_sys['serverTime'] ?? ''}',
-                        style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+                    Tx('服务 v${_sys['version'] ?? '?'} · ${_sys['serverTime'] ?? ''}',
+                        style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     Wrap(spacing: 18, runSpacing: 10, children: [
                       _kpi('在线', '${_sys['online'] ?? 0}'),
@@ -280,7 +476,7 @@ class _OverviewState extends _AdminSectionState<_Overview> {
               ),
             ),
             const SectionTitle('危险运维'),
-            const Text('这些操作会直接影响正在游玩的真人，务必先确认。',
+            Tx('这些操作会直接影响正在游玩的真人，务必先确认。',
                 style: TextStyle(color: kDim, fontSize: 12)),
             const SizedBox(height: 8),
             Wrap(spacing: 10, runSpacing: 10, children: [
@@ -289,35 +485,101 @@ class _OverviewState extends _AdminSectionState<_Overview> {
                   if (!await danger('结束全部对局', '将强制结束当前所有进行中的对局（现在 ${_sys['activeGames'] ?? 0} 局），所有玩家会被退回房间。')) return;
                   await act('/api/admin/ops/end-all', {}, '已结束全部对局');
                 },
-                icon: const Icon(Icons.stop_circle_outlined, color: kBlood, size: 18),
-                label: const Text('结束全部对局'),
+                icon: Icon(Icons.stop_circle_outlined, color: kBlood, size: 18),
+                label: const Tx('结束全部对局'),
               ),
               OutlinedButton.icon(
                 onPressed: () async {
                   if (!await danger('重启服务', '进程将 exit(86) 并依赖 start.bat 守护循环拉起；没有守护环境时等同于关机。')) return;
                   await act('/api/admin/server/restart', {}, '已发送重启指令');
                 },
-                icon: const Icon(Icons.restart_alt, color: kMoon, size: 18),
-                label: const Text('重启服务'),
+                icon: Icon(Icons.restart_alt, color: kMoon, size: 18),
+                label: const Tx('重启服务'),
               ),
               OutlinedButton.icon(
                 onPressed: () async {
                   if (!await danger('关闭服务', '进程 exit(0) 且不会自动拉起，全站立即下线。')) return;
                   await act('/api/admin/server/shutdown', {}, '已发送关机指令');
                 },
-                icon: const Icon(Icons.power_settings_new, color: kBlood, size: 18),
-                label: const Text('关闭服务'),
+                icon: Icon(Icons.power_settings_new, color: kBlood, size: 18),
+                label: const Tx('关闭服务'),
               ),
             ]),
+            const SectionTitle('一键清理'),
+            Tx('清理「无用房间」与「无用账号」。建议先点「预览」核对清单，确认无误再执行删除（删除不可撤销）。',
+                style: TextStyle(color: kDim, fontSize: 12)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Tx('无用房间', style: TextStyle(color: kDim, fontSize: 12.5)),
+                Tx('创建超过', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                _clField(_clRoomHours, 64),
+                Tx('小时', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                OutlinedButton(
+                    onPressed: _clBusy ? null : () => _clScan(true, false),
+                    child: const Tx('预览房间')),
+                OutlinedButton(
+                    onPressed: _clBusy ? null : () => _clRun(true, false),
+                    style: OutlinedButton.styleFrom(foregroundColor: kBlood),
+                    child: const Tx('清理房间')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Tx('无用账号', style: TextStyle(color: kDim, fontSize: 12.5)),
+                Tx('等级 ≤', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                _clField(_clAccLevel, 56),
+                Tx('对局数 ≤', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                _clField(_clAccGames, 56),
+                Tx('注册超过', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                _clField(_clAccHours, 64),
+                Tx('小时', style: TextStyle(color: kFaint, fontSize: 11.5)),
+                OutlinedButton(
+                    onPressed: _clBusy ? null : () => _clScan(false, true),
+                    child: const Tx('预览账号')),
+                OutlinedButton(
+                    onPressed: _clBusy ? null : () => _clRun(false, true),
+                    style: OutlinedButton.styleFrom(foregroundColor: kBlood),
+                    child: const Tx('清理账号')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(spacing: 10, runSpacing: 10, children: [
+              OutlinedButton.icon(
+                  onPressed: _clBusy ? null : () => _clScan(true, true),
+                  icon: const Icon(Icons.search, size: 18),
+                  label: const Tx('全部预览')),
+              OutlinedButton.icon(
+                  onPressed: _clBusy ? null : () => _clRun(true, true),
+                  style: OutlinedButton.styleFrom(foregroundColor: kBlood),
+                  icon: const Icon(Icons.cleaning_services_outlined, size: 18),
+                  label: const Tx('一键清理（房间 + 账号）')),
+            ]),
+            if (_clBusy)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: LinearProgressIndicator(),
+              ),
+            _clResultView(),
+            const SizedBox(height: 6),
+            Tx('说明：管理员、被封禁、当前在线、以及等级/对局数超阈值的账号一律保留；自己不会被删除。',
+                style: TextStyle(color: kFaint, fontSize: 11.5)),
             SectionTitle('在线玩家（${online.length}）'),
             for (final u in online)
               ListTile(
                 dense: true,
                 leading: const WwAvatar(avatarId: null, avatarUrl: null, size: 30),
-                title: Text('${u['nickname']} @${u['username']}', style: const TextStyle(fontSize: 13.5, color: kText)),
-                subtitle: Text('${u['activity'] ?? ''}${(u['roomNo'] ?? '').toString().isEmpty ? '' : ' · 房号 ${u['roomNo']}'}',
-                    style: const TextStyle(color: kDim, fontSize: 12)),
-                trailing: u['admin'] == true ? const Text('管理员', style: TextStyle(color: kMoon, fontSize: 11.5)) : null,
+                title: Tx('${u['nickname']} @${u['username']}', style: TextStyle(fontSize: 13.5, color: kText)),
+                subtitle: Tx('${u['activity'] ?? ''}${(u['roomNo'] ?? '').toString().isEmpty ? '' : ' · 房号 ${u['roomNo']}'}',
+                    style: TextStyle(color: kDim, fontSize: 12)),
+                trailing: u['admin'] == true ? Tx('管理员', style: TextStyle(color: kMoon, fontSize: 11.5)) : null,
               ),
           ],
         ),
@@ -328,8 +590,8 @@ class _OverviewState extends _AdminSectionState<_Overview> {
   Widget _kpi(String k, String v) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(v, style: const TextStyle(color: kAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-          Text(k, style: const TextStyle(color: kDim, fontSize: 12)),
+          Tx(v, style: TextStyle(color: kAccent, fontSize: 20, fontWeight: FontWeight.bold)),
+          Tx(k, style: TextStyle(color: kDim, fontSize: 12)),
         ],
       );
 }
@@ -372,11 +634,11 @@ class _UsersState extends _AdminSectionState<_Users> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: kPanel,
-        title: Text(title),
-        content: TextField(controller: c, keyboardType: numeric ? const TextInputType.numberWithOptions(signed: true) : null, decoration: InputDecoration(hintText: hint)),
+        title: Tx(title),
+        content: TextField(controller: c, keyboardType: numeric ? const TextInputType.numberWithOptions(signed: true) : null, decoration: InputDecoration(hintText: tr(hint))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('提交')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Tx('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Tx('提交')),
         ],
       ),
     );
@@ -394,18 +656,18 @@ class _UsersState extends _AdminSectionState<_Users> {
         child: ListView(
           shrinkWrap: true,
           children: [
-            ListTile(title: Text('$name · @$name', style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold))),
+            ListTile(title: Tx('$name · @$name', style: TextStyle(color: kMoon, fontWeight: FontWeight.bold))),
             if (id != me)
-              ListTile(leading: const Icon(Icons.shield_outlined), title: Text(u['banned'] == true ? '解除封禁' : '封禁（会踢线）'), onTap: () => Navigator.pop(c, 'ban')),
+              ListTile(leading: const Icon(Icons.shield_outlined), title: Tx(u['banned'] == true ? '解除封禁' : '封禁（会踢线）'), onTap: () => Navigator.pop(c, 'ban')),
             if (id != me)
-              ListTile(leading: const Icon(Icons.admin_panel_settings_outlined), title: Text(u['admin'] == true ? '取消管理员' : '设为管理员'), onTap: () => Navigator.pop(c, 'admin')),
-            ListTile(leading: const Icon(Icons.workspace_premium_outlined), title: const Text('调 VIP（等级 0-3，天数 ≤0 为永久）'), onTap: () => Navigator.pop(c, 'vip')),
-            ListTile(leading: const Icon(Icons.attach_money), title: const Text('增减金币（可为负）'), onTap: () => Navigator.pop(c, 'gold')),
-            ListTile(leading: const Icon(Icons.edit_outlined), title: const Text('编辑资料（昵称/等级/金币）'), onTap: () => Navigator.pop(c, 'edit')),
-            ListTile(leading: const Icon(Icons.password_outlined), title: const Text('重置密码'), onTap: () => Navigator.pop(c, 'pwd')),
-            ListTile(leading: const Icon(Icons.login_outlined), title: const Text('以该身份登录（复制免登链接）'), onTap: () => Navigator.pop(c, 'imp')),
+              ListTile(leading: const Icon(Icons.admin_panel_settings_outlined), title: Tx(u['admin'] == true ? '取消管理员' : '设为管理员'), onTap: () => Navigator.pop(c, 'admin')),
+            ListTile(leading: const Icon(Icons.workspace_premium_outlined), title: const Tx('调 VIP（等级 0-3，天数 ≤0 为永久）'), onTap: () => Navigator.pop(c, 'vip')),
+            ListTile(leading: const Icon(Icons.attach_money), title: const Tx('增减金币（可为负）'), onTap: () => Navigator.pop(c, 'gold')),
+            ListTile(leading: const Icon(Icons.edit_outlined), title: const Tx('编辑资料（昵称/等级/金币）'), onTap: () => Navigator.pop(c, 'edit')),
+            ListTile(leading: const Icon(Icons.password_outlined), title: const Tx('重置密码'), onTap: () => Navigator.pop(c, 'pwd')),
+            ListTile(leading: const Icon(Icons.login_outlined), title: const Tx('以该身份登录（复制免登链接）'), onTap: () => Navigator.pop(c, 'imp')),
             if (id != me)
-              ListTile(leading: const Icon(Icons.delete_forever_outlined, color: kBlood), title: const Text('删除账号（级联物理删除）', style: TextStyle(color: kBlood)), onTap: () => Navigator.pop(c, 'del')),
+              ListTile(leading: Icon(Icons.delete_forever_outlined, color: kBlood), title: Tx('删除账号（级联物理删除）', style: TextStyle(color: kBlood)), onTap: () => Navigator.pop(c, 'del')),
           ],
         ),
       ),
@@ -522,18 +784,18 @@ class _UsersState extends _AdminSectionState<_Users> {
           shrinkWrap: true,
           children: [
             ListTile(
-              title: Text('已选 ${_selected.length} 人（单次上限 500）',
-                  style: const TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
+              title: Tx('已选 ${_selected.length} 人（单次上限 500）',
+                  style: TextStyle(color: kMoon, fontWeight: FontWeight.bold)),
             ),
-            ListTile(leading: const Icon(Icons.shield_outlined), title: const Text('封禁'), onTap: () => Navigator.pop(c, 'ban')),
-            ListTile(leading: const Icon(Icons.shield_moon_outlined), title: const Text('解除封禁'), onTap: () => Navigator.pop(c, 'unban')),
-            ListTile(leading: const Icon(Icons.admin_panel_settings_outlined), title: const Text('设为管理员'), onTap: () => Navigator.pop(c, 'admin')),
-            ListTile(leading: const Icon(Icons.remove_moderator_outlined), title: const Text('取消管理员'), onTap: () => Navigator.pop(c, 'unadmin')),
-            ListTile(leading: const Icon(Icons.workspace_premium_outlined), title: const Text('调 VIP（等级 0-3）'), onTap: () => Navigator.pop(c, 'vip')),
-            ListTile(leading: const Icon(Icons.attach_money), title: const Text('增减金币（可为负）'), onTap: () => Navigator.pop(c, 'gold')),
+            ListTile(leading: const Icon(Icons.shield_outlined), title: const Tx('封禁'), onTap: () => Navigator.pop(c, 'ban')),
+            ListTile(leading: const Icon(Icons.shield_moon_outlined), title: const Tx('解除封禁'), onTap: () => Navigator.pop(c, 'unban')),
+            ListTile(leading: const Icon(Icons.admin_panel_settings_outlined), title: const Tx('设为管理员'), onTap: () => Navigator.pop(c, 'admin')),
+            ListTile(leading: const Icon(Icons.remove_moderator_outlined), title: const Tx('取消管理员'), onTap: () => Navigator.pop(c, 'unadmin')),
+            ListTile(leading: const Icon(Icons.workspace_premium_outlined), title: const Tx('调 VIP（等级 0-3）'), onTap: () => Navigator.pop(c, 'vip')),
+            ListTile(leading: const Icon(Icons.attach_money), title: const Tx('增减金币（可为负）'), onTap: () => Navigator.pop(c, 'gold')),
             ListTile(
-              leading: const Icon(Icons.delete_forever_outlined, color: kBlood),
-              title: const Text('删除（级联物理删除）', style: TextStyle(color: kBlood)),
+              leading: Icon(Icons.delete_forever_outlined, color: kBlood),
+              title: Tx('删除（级联物理删除）', style: TextStyle(color: kBlood)),
               onTap: () => Navigator.pop(c, 'delete'),
             ),
           ],
@@ -577,14 +839,14 @@ class _UsersState extends _AdminSectionState<_Users> {
       leading: _selectMode
           ? Checkbox(value: checked, activeColor: kAccent, onChanged: (_) => toggle())
           : null,
-      title: Text('${u['nickname']}  @${u['username']}',
-          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5, color: kText)),
-      subtitle: Text(
+      title: Tx('${u['nickname']}  @${u['username']}',
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, color: kText)),
+      subtitle: Tx(
         'Lv.${u['level']} · 💰${u['gold']} · VIP${u['vip'] ?? 0}'
         '${u['admin'] == true ? ' · 管理员' : ''}${u['banned'] == true ? ' · 已封禁' : ''}${u['online'] == true ? ' · 在线' : ''}',
         style: TextStyle(fontSize: 11.5, color: u['banned'] == true ? kBlood : kDim),
       ),
-      trailing: _selectMode ? null : const Icon(Icons.more_vert, color: kDim),
+      trailing: _selectMode ? null : Icon(Icons.more_vert, color: kDim),
       onTap: _selectMode ? toggle : () => _menu(u),
     );
   }
@@ -594,9 +856,9 @@ class _UsersState extends _AdminSectionState<_Users> {
     return Scaffold(
       appBar: AppBar(
         actions: [
-          IconButton(tooltip: '导出 CSV', onPressed: _exportCsv, icon: const Icon(Icons.file_download_outlined)),
+          IconButton(tooltip: tr('导出 CSV'), onPressed: _exportCsv, icon: const Icon(Icons.file_download_outlined)),
           IconButton(
-            tooltip: _selectMode ? '退出批量' : '批量选择',
+            tooltip: _selectMode ? tr('退出批量') : tr('批量选择'),
             onPressed: () => setState(() {
               _selectMode = !_selectMode;
               if (!_selectMode) _selected.clear();
@@ -613,7 +875,7 @@ class _UsersState extends _AdminSectionState<_Users> {
               controller: _kw,
               onSubmitted: (_) => _search(),
               decoration: InputDecoration(
-                hintText: '搜索用户名或昵称',
+                hintText: tr('搜索用户名或昵称'),
                 isDense: true,
                 prefixIcon: const Icon(Icons.search, size: 18),
                 suffixIcon: IconButton(onPressed: _search, icon: const Icon(Icons.arrow_forward)),
@@ -629,13 +891,13 @@ class _UsersState extends _AdminSectionState<_Users> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('已选 ${_selected.length} / ${rows.length} 人',
-                          style: const TextStyle(color: kMoon, fontSize: 13)),
+                      child: Tx('已选 ${_selected.length} / ${rows.length} 人',
+                          style: TextStyle(color: kMoon, fontSize: 13)),
                     ),
                     FilledButton.icon(
                       onPressed: _selected.isEmpty ? null : _batchMenu,
                       icon: const Icon(Icons.playlist_add_check, size: 18),
-                      label: const Text('批量操作'),
+                      label: const Tx('批量操作'),
                     ),
                   ],
                 ),
@@ -673,14 +935,14 @@ class _RoomsState extends _AdminSectionState<_Rooms> {
           for (final r in rows)
             ListTile(
               dense: true,
-              title: Text('房 ${r['roomNo']} · ${r['hostName'] ?? ''}', style: const TextStyle(fontSize: 13.5, color: kText)),
-              subtitle: Text(
+              title: Tx('房 ${r['roomNo']} · ${r['hostName'] ?? ''}', style: TextStyle(fontSize: 13.5, color: kText)),
+              subtitle: Tx(
                 '${r['status'] == 'PLAYING' ? '对局中' : '等待开局'} · ${r['playerCount'] ?? 0}/${r['maxSeats'] ?? 0} 人 · 在线 ${r['onlineCount'] ?? 0}'
                 '${r['boardName'] == null ? '' : ' · ${r['boardName']}'}',
                 style: TextStyle(fontSize: 11.5, color: r['status'] == 'PLAYING' ? kMoon : kDim),
               ),
               trailing: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: kDim, size: 18),
+                icon: Icon(Icons.more_vert, color: kDim, size: 18),
                 onSelected: (v) async {
                   final id = (r['id'] as num).toInt();
                   if (v == 'end') {
@@ -692,8 +954,8 @@ class _RoomsState extends _AdminSectionState<_Rooms> {
                   }
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'end', child: Text('强制结束对局')),
-                  PopupMenuItem(value: 'dissolve', child: Text('解散房间')),
+                  PopupMenuItem(value: 'end', child: Tx('强制结束对局')),
+                  PopupMenuItem(value: 'dissolve', child: Tx('解散房间')),
                 ],
               ),
             ),
@@ -729,29 +991,29 @@ class _TicketsState extends _AdminSectionState<_Tickets> {
       builder: (cc) => StatefulBuilder(
         builder: (c2, setLocal) => AlertDialog(
           backgroundColor: kPanel,
-          title: Text('回复工单 #${t['id']}'),
+          title: Tx('回复工单 #${t['id']}'),
           content: SizedBox(
             width: 420,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${t['title']}\n${t['content']}', style: const TextStyle(fontSize: 12.5, color: kDim, height: 1.5)),
+                Tx('${t['title']}\n${t['content']}', style: TextStyle(fontSize: 12.5, color: kDim, height: 1.5)),
                 const SizedBox(height: 10),
-                TextField(controller: c, maxLines: 4, decoration: const InputDecoration(hintText: '回复内容')),
+                TextField(controller: c, maxLines: 4, decoration: InputDecoration(hintText: tr('回复内容'))),
                 DropdownButton<String>(
                   isExpanded: true,
                   value: st,
                   dropdownColor: kPanel2,
-                  items: [for (final s in _label.keys) DropdownMenuItem(value: s, child: Text(_label[s]!))],
+                  items: [for (final s in _label.keys) DropdownMenuItem(value: s, child: Tx(_label[s]!))],
                   onChanged: (v) => setLocal(() => st = v ?? st),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(cc, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(cc, true), child: const Text('发送')),
+            TextButton(onPressed: () => Navigator.pop(cc, false), child: const Tx('取消')),
+            FilledButton(onPressed: () => Navigator.pop(cc, true), child: const Tx('发送')),
           ],
         ),
       ),
@@ -775,7 +1037,7 @@ class _TicketsState extends _AdminSectionState<_Tickets> {
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(s == 'ALL' ? '全部' : _label[s] ?? s),
+                      label: Tx(s == 'ALL' ? '全部' : _label[s] ?? s),
                       selected: _status == s,
                       onSelected: (_) {
                         setState(() => _status = s);
@@ -794,11 +1056,11 @@ class _TicketsState extends _AdminSectionState<_Tickets> {
                     margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                     child: ListTile(
                       dense: true,
-                      title: Text('#${t['id']} ${t['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5, color: kMoon)),
-                      subtitle: Text('${t['category']} · ${t['reporter']} · ${_label[t['status']] ?? t['status']} · ${t['replies'] ?? 0} 条回复\n${t['content']}',
-                          maxLines: 3, style: const TextStyle(fontSize: 11.5, color: kDim, height: 1.45)),
+                      title: Tx('#${t['id']} ${t['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, color: kMoon)),
+                      subtitle: Tx('${t['category']} · ${t['reporter']} · ${_label[t['status']] ?? t['status']} · ${t['replies'] ?? 0} 条回复\n${t['content']}',
+                          maxLines: 3, style: TextStyle(fontSize: 11.5, color: kDim, height: 1.45)),
                       isThreeLine: true,
-                      trailing: TextButton(onPressed: () => _reply(t as Map), child: const Text('回复')),
+                      trailing: TextButton(onPressed: () => _reply(t as Map), child: const Tx('回复')),
                     ),
                   ),
               ],
@@ -836,22 +1098,22 @@ class _RedeemState extends _AdminSectionState<_Redeem> {
       builder: (dialogCtx) => StatefulBuilder(
         builder: (_, setLocal) => AlertDialog(
           backgroundColor: kPanel,
-          title: const Text('新建兑换码'),
+          title: const Tx('新建兑换码'),
           content: SizedBox(
             width: 400,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(controller: code, decoration: const InputDecoration(labelText: '码（留空由服务端生成）')),
-                  TextField(controller: gold, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '金币')),
-                  TextField(controller: exp, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '经验')),
-                  TextField(controller: item, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '道具ID（0=不发道具）')),
-                  TextField(controller: uses, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '可用次数')),
+                  TextField(controller: code, decoration: InputDecoration(labelText: tr('码（留空由服务端生成）'))),
+                  TextField(controller: gold, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr('金币'))),
+                  TextField(controller: exp, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr('经验'))),
+                  TextField(controller: item, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr('道具ID（0=不发道具）'))),
+                  TextField(controller: uses, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr('可用次数'))),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(expire == null ? '过期时间：永不过期' : '过期时间：${isoDay(expire!)} 23:59:59'),
-                    subtitle: const Text('留空即永久；选日期后当日 23:59:59 失效'),
+                    title: Tx(expire == null ? '过期时间：永不过期' : '过期时间：${isoDay(expire!)} 23:59:59'),
+                    subtitle: const Tx('留空即永久；选日期后当日 23:59:59 失效'),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -866,21 +1128,21 @@ class _RedeemState extends _AdminSectionState<_Redeem> {
                             );
                             if (picked != null) setLocal(() => expire = picked);
                           },
-                          child: const Text('选择日期'),
+                          child: const Tx('选择日期'),
                         ),
                         if (expire != null)
                           IconButton(onPressed: () => setLocal(() => expire = null), icon: const Icon(Icons.clear, size: 18)),
                       ],
                     ),
                   ),
-                  TextField(controller: note, decoration: const InputDecoration(labelText: '备注（可选）')),
+                  TextField(controller: note, decoration: InputDecoration(labelText: tr('备注（可选）'))),
                 ],
               ),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('创建')),
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Tx('取消')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Tx('创建')),
           ],
         ),
       ),
@@ -918,24 +1180,24 @@ class _RedeemState extends _AdminSectionState<_Redeem> {
           for (final r in rows)
             ListTile(
               dense: true,
-              title: Text('${r['code']}', style: TextStyle(color: r['active'] == true ? kMoon : kDim, fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: Text(
+              title: Tx('${r['code']}', style: TextStyle(color: r['active'] == true ? kMoon : kDim, fontWeight: FontWeight.bold, fontSize: 14)),
+              subtitle: Tx(
                 '💰${r['gold'] ?? 0} · 经验${r['exp'] ?? 0} · 已用 ${r['usedCount'] ?? 0}/${r['maxUses'] ?? 0}'
                 '${(r['expireAt'] ?? '').toString().isEmpty ? ' · 不过期' : ' · 至 ${r['expireAt'].toString().substring(0, 10)}'}'
                 '${(r['note'] ?? '').toString().isEmpty ? '' : ' · ${r['note']}'}',
-                style: const TextStyle(fontSize: 11.5, color: kDim),
+                style: TextStyle(fontSize: 11.5, color: kDim),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
-                    tooltip: r['active'] == true ? '停用' : '启用',
+                    tooltip: r['active'] == true ? tr('停用') : tr('启用'),
                     icon: Icon(r['active'] == true ? Icons.toggle_on : Icons.toggle_off, color: r['active'] == true ? kGreen : kDim),
                     onPressed: () => act('/api/admin/redeem/${(r['id'] as num).toInt()}/active', {'value': !(r['active'] == true)}, '状态已更新'),
                   ),
                   IconButton(
-                    tooltip: '删除',
-                    icon: const Icon(Icons.delete_outline, color: kBlood),
+                    tooltip: tr('删除'),
+                    icon: Icon(Icons.delete_outline, color: kBlood),
                     onPressed: () async {
                       if (!await danger('删除兑换码 ${r['code']}', '已被领取的记录会一并失效。', word: '删除')) return;
                       await act('/api/admin/redeem/${(r['id'] as num).toInt()}/delete', {}, '已删除');
@@ -974,27 +1236,27 @@ class _ForumOpsState extends _AdminSectionState<_ForumOps> {
               margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               child: ListTile(
                 dense: true,
-                title: Text('${p['pinned'] == true ? '📌 ' : ''}${p['title']}',
+                title: Tx('${p['pinned'] == true ? '📌 ' : ''}${p['title']}',
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 13.5, color: p['hidden'] == true ? kDim : kText, decoration: p['hidden'] == true ? TextDecoration.lineThrough : null)),
-                subtitle: Text('${p['category']} · ${p['author']} · ${p['replyCount'] ?? 0} 回复${p['hidden'] == true ? ' · 已隐藏' : ''}',
-                    style: const TextStyle(fontSize: 11.5, color: kDim)),
+                subtitle: Tx('${p['category']} · ${p['author']} · ${p['replyCount'] ?? 0} 回复${p['hidden'] == true ? ' · 已隐藏' : ''}',
+                    style: TextStyle(fontSize: 11.5, color: kDim)),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: p['pinned'] == true ? '取消置顶' : '置顶',
+                      tooltip: p['pinned'] == true ? tr('取消置顶') : tr('置顶'),
                       icon: Icon(Icons.push_pin, size: 18, color: p['pinned'] == true ? kAccent : kDim),
                       onPressed: () => act('/api/forum/${(p['id'] as num).toInt()}/pin', {'value': !(p['pinned'] == true)}, '置顶状态已更新'),
                     ),
                     IconButton(
-                      tooltip: p['hidden'] == true ? '取消隐藏' : '隐藏',
+                      tooltip: p['hidden'] == true ? tr('取消隐藏') : tr('隐藏'),
                       icon: Icon(p['hidden'] == true ? Icons.visibility_off : Icons.visibility, size: 18, color: p['hidden'] == true ? kBlood : kDim),
                       onPressed: () => act('/api/forum/${(p['id'] as num).toInt()}/hide', {'value': !(p['hidden'] == true)}, '可见性已更新'),
                     ),
                     IconButton(
-                      tooltip: '删除（连带全部回复）',
-                      icon: const Icon(Icons.delete_outline, size: 18, color: kBlood),
+                      tooltip: tr('删除（连带全部回复）'),
+                      icon: Icon(Icons.delete_outline, size: 18, color: kBlood),
                       onPressed: () async {
                         if (!await danger('删除帖子', '连同该帖全部回复一起删除，不可恢复。', word: '删除')) return;
                         await act('/api/forum/${(p['id'] as num).toInt()}/delete', {}, '帖子已删除');
@@ -1025,7 +1287,7 @@ class _SystemState extends _AdminSectionState<_System> {
     ('quickai', '快速 AI 房'), ('spectate', '观战'), ('shop', '商店'), ('friends', '好友'),
     ('forum', '论坛'), ('ranking', '排行榜'), ('checkin', '签到'), ('news', '更新动态'),
     ('tickets', '工单'), ('download', '下载中心'), ('guide', '新手引导'), ('voiceMode', '语音同传'),
-    ('duo', '双人组队'), ('items', '功能道具'), ('invite', '邀请外链'), ('addai', '房主补 AI'),
+    ('items', '功能道具'), ('invite', '邀请外链'), ('addai', '房主补 AI'),
   ];
   Map<String, dynamic> _flags = const {};
   int _maxHeight = 0;
@@ -1076,22 +1338,22 @@ class _SystemState extends _AdminSectionState<_System> {
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
           children: [
             const SectionTitle('功能开关'),
-            const Text('关闭后服务端会直接拒绝相关操作，三端客户端的入口也会同步隐藏。',
+            Tx('关闭后服务端会直接拒绝相关操作，三端客户端的入口也会同步隐藏。',
                 style: TextStyle(color: kDim, fontSize: 12)),
             for (final f in feats)
               SwitchListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 activeColor: kAccent,
-                title: Text('${f.$2}  (${f.$1})', style: const TextStyle(fontSize: 13.5)),
+                title: Tx('${f.$2}  (${f.$1})', style: const TextStyle(fontSize: 13.5)),
                 value: _flags[f.$1] != false,
                 onChanged: (v) => _saveFlags(f.$1, v),
               ),
             const SectionTitle('网页最大高度'),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text('当前 ${_maxHeight == 0 ? '不限制' : '$_maxHeight%'}', style: const TextStyle(color: kText, fontSize: 13.5)),
-              subtitle: const Text('字段名叫 webMaxHeight，实际语义是「占屏高百分比」，0 表示不限制（服务端 clamp 0-100）',
+              title: Tx('当前 ${_maxHeight == 0 ? '不限制' : '$_maxHeight%'}', style: TextStyle(color: kText, fontSize: 13.5)),
+              subtitle: Tx('字段名叫 webMaxHeight，实际语义是「占屏高百分比」，0 表示不限制（服务端 clamp 0-100）',
                   style: TextStyle(color: kDim, fontSize: 11.5)),
               trailing: TextButton(
                 onPressed: () async {
@@ -1102,19 +1364,19 @@ class _SystemState extends _AdminSectionState<_System> {
                   try {
                     final r = await store.api.post('/api/admin/system/display', {'webMaxHeight': v});
                     setState(() => _maxHeight = (r['webMaxHeight'] as num?)?.toInt() ?? v);
-                    sm.showSnackBar(SnackBar(content: Text('已设为 ${_maxHeight == 0 ? '不限制' : '$_maxHeight%'}')));
+                    sm.showSnackBar(SnackBar(content: Tx('已设为 ${_maxHeight == 0 ? '不限制' : '$_maxHeight%'}')));
                   } on AppError catch (e) {
-                    sm.showSnackBar(SnackBar(content: Text(e.message), backgroundColor: kBlood.withOpacity(.92)));
+                    sm.showSnackBar(SnackBar(content: Tx(e.message), backgroundColor: kBlood.withOpacity(.92)));
                   }
                 },
-                child: Text(_maxHeight == 0 ? '限制为 90%' : '改为不限制'),
+                child: Tx(_maxHeight == 0 ? '限制为 90%' : '改为不限制'),
               ),
             ),
             const SectionTitle('维护通知'),
             TextField(
               controller: _notice,
               maxLength: 120,
-              decoration: const InputDecoration(hintText: '留空并保存即为清除通知；非空默认展示 6 小时'),
+              decoration: InputDecoration(hintText: tr('留空并保存即为清除通知；非空默认展示 6 小时')),
             ),
             Row(
               children: [
@@ -1126,13 +1388,13 @@ class _SystemState extends _AdminSectionState<_System> {
                       try {
                         final r = await store.api.post('/api/room/notice', {'message': _notice.text.trim()});
                         sm.showSnackBar(SnackBar(
-                            content: Text(r['cleared'] == true ? '已清除维护通知' : '已下发，触达 ${r['delivered'] ?? 0} 人')));
+                            content: Tx(r['cleared'] == true ? '已清除维护通知' : '已下发，触达 ${r['delivered'] ?? 0} 人')));
                         store.fetchMaintenance();
                       } on AppError catch (e) {
-                        sm.showSnackBar(SnackBar(content: Text(e.message), backgroundColor: kBlood.withOpacity(.92)));
+                        sm.showSnackBar(SnackBar(content: Tx(e.message), backgroundColor: kBlood.withOpacity(.92)));
                       }
                     },
-                    child: Text(_notice.text.trim().isEmpty ? '清除通知' : '下发通知'),
+                    child: Tx(_notice.text.trim().isEmpty ? '清除通知' : '下发通知'),
                   ),
                 ),
               ],
@@ -1199,9 +1461,9 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
           _health = h ?? _health;
         });
       }
-      sm.showSnackBar(const SnackBar(content: Text('语音参数已保存')));
+      sm.showSnackBar(const SnackBar(content: Tx('语音参数已保存')));
     } on AppError catch (e) {
-      sm.showSnackBar(SnackBar(content: Text(e.message), backgroundColor: kBlood.withOpacity(.92)));
+      sm.showSnackBar(SnackBar(content: Tx(e.message), backgroundColor: kBlood.withOpacity(.92)));
     }
   }
 
@@ -1227,9 +1489,9 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
     try {
       final r = await store.api.post('/api/admin/ai/config', body);
       if (mounted) setState(() => _ai = r.cast<String, dynamic>());
-      sm.showSnackBar(const SnackBar(content: Text('AI 配置已保存')));
+      sm.showSnackBar(const SnackBar(content: Tx('AI 配置已保存')));
     } on AppError catch (e) {
-      sm.showSnackBar(SnackBar(content: Text(e.message), backgroundColor: kBlood.withOpacity(.92)));
+      sm.showSnackBar(SnackBar(content: Tx(e.message), backgroundColor: kBlood.withOpacity(.92)));
     }
   }
 
@@ -1239,15 +1501,15 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: kPanel,
-        title: Text(title),
+        title: Tx(title),
         content: TextField(
           controller: c,
           keyboardType: numeric ? const TextInputType.numberWithOptions(decimal: true) : null,
           decoration: const InputDecoration(isDense: true),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('确定')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Tx('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Tx('确定')),
         ],
       ),
     );
@@ -1270,11 +1532,11 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
 
   Widget _row(String label, dynamic value, {VoidCallback? onTap, bool boolValue = false}) => ListTile(
         dense: true,
-        title: Text(label, style: const TextStyle(fontSize: 13, color: kText)),
-        subtitle: onTap != null ? null : Text('$value', style: const TextStyle(fontSize: 12, color: kDim)),
+        title: Tx(label, style: TextStyle(fontSize: 13, color: kText)),
+        subtitle: onTap != null ? null : Tx('$value', style: TextStyle(fontSize: 12, color: kDim)),
         trailing: onTap == null
             ? (boolValue ? Icon(value == true ? Icons.check_circle : Icons.remove_circle, size: 18, color: value == true ? kGreen : kDim) : null)
-            : const Icon(Icons.edit_outlined, size: 16, color: kDim),
+            : Icon(Icons.edit_outlined, size: 16, color: kDim),
         onTap: onTap,
       );
 
@@ -1295,13 +1557,13 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('语音服务健康：${_health['enabled'] == true ? '已启用' : '未启用'}',
+                    Tx('语音服务健康：${_health['enabled'] == true ? '已启用' : '未启用'}',
                         style: TextStyle(color: _health['enabled'] == true ? kGreen : kBlood, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text('ASR：${asr?['ok'] == true ? '正常' : '异常 ${asr?['reason'] ?? ''}'}',
-                        style: const TextStyle(fontSize: 12.5, color: kDim)),
-                    Text('TTS：${tts?['ok'] == true ? '正常' : '异常 ${tts?['reason'] ?? ''}'}',
-                        style: const TextStyle(fontSize: 12.5, color: kDim)),
+                    Tx('ASR：${asr?['ok'] == true ? '正常' : '异常 ${asr?['reason'] ?? ''}'}',
+                        style: TextStyle(fontSize: 12.5, color: kDim)),
+                    Tx('TTS：${tts?['ok'] == true ? '正常' : '异常 ${tts?['reason'] ?? ''}'}',
+                        style: TextStyle(fontSize: 12.5, color: kDim)),
                   ],
                 ),
               ),
@@ -1353,9 +1615,9 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
                 onTap: () => _edit('tokenBudgetPerGame', '每局 token 预算', numeric: true, ai: true)),
             ListTile(
               dense: true,
-              title: const Text('密钥 apiKey', style: TextStyle(fontSize: 13, color: kText)),
-              subtitle: Text(_ai['hasKey'] == true ? '已配置（本页面永不回传、也不显示明文）' : '未配置',
-                  style: const TextStyle(fontSize: 12, color: kDim)),
+              title: Tx('密钥 apiKey', style: TextStyle(fontSize: 13, color: kText)),
+              subtitle: Tx(_ai['hasKey'] == true ? '已配置（本页面永不回传、也不显示明文）' : '未配置',
+                  style: TextStyle(fontSize: 12, color: kDim)),
             ),
             const SectionTitle('连通性测试'),
             Padding(
@@ -1364,7 +1626,7 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
                 OutlinedButton.icon(
                   onPressed: _testing ? null : _testAi,
                   icon: const Icon(Icons.bolt_outlined, size: 18),
-                  label: Text(_testing ? '测试中…' : '测一次 AI 发言'),
+                  label: Tx(_testing ? '测试中…' : '测一次 AI 发言'),
                 ),
               ]),
             ),
@@ -1382,9 +1644,9 @@ class _VoiceAiState extends _AdminSectionState<_VoiceAi> {
     final sm = ScaffoldMessenger.of(context);
     try {
       final r = await store.api.post('/api/admin/ai/test', {});
-      sm.showSnackBar(SnackBar(content: Text('AI 回复：${r['reply'] ?? '（空）'}'), duration: const Duration(seconds: 8)));
+      sm.showSnackBar(SnackBar(content: Tx('AI 回复：${r['reply'] ?? '（空）'}'), duration: const Duration(seconds: 8)));
     } on AppError catch (e) {
-      sm.showSnackBar(SnackBar(content: Text('测试失败：${e.message}'), backgroundColor: kBlood.withOpacity(.92)));
+      sm.showSnackBar(SnackBar(content: Tx('测试失败：${e.message}'), backgroundColor: kBlood.withOpacity(.92)));
     }
     if (mounted) setState(() => _testing = false);
   }

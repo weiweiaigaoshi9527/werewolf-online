@@ -26,6 +26,18 @@
   };
   const feedFilter = { cat: 'all', seat: 0 };   // seat>0：只看某个座位（点记录里的号徽章触发）
 
+  /* 事件类型 → 中文名（复制导出用）；detail 的中文文案复用 app.js 的 eventTextZh，
+     保证「复制出的对局日志」也是纯中文，不再出现 NIGHT_ACTION / SEER_CHECK=WOLF 之类的英文标记。 */
+  const TYPE_CN = {
+    GAME_START: '开局', SPEECH: '发言', LAST_WORDS: '遗言', PLAYER_DIED: '出局',
+    DAWN_ANNOUNCE: '天亮', VOTE_RESULT: '投票结果', VOTE_DETAIL: '投票明细', VOTE_TIE: '平票',
+    SHOOT: '开枪', IDIOT_REVEAL: '白痴翻牌', WHITE_WOLF_BLOWUP: '白狼王自爆',
+    SHERIFF_SIGNUP: '上警', SHERIFF_WITHDRAW: '退水', SHERIFF_WIN: '警长', GAME_OVER: '游戏结束',
+    NIGHT_ACTION: '夜间行动', NIGHT_RESOLVE: '夜晚结算',
+    ITEM_REVEAL: '道具查验', ITEM_EFFECT: '道具生效',
+  };
+  const detailCn = (e) => (typeof eventTextZh === 'function' ? eventTextZh(e) : (e.detail || ''));
+
   function mountFeedTools() {
     const dock = $('dock-feed');
     if (!dock || dock.querySelector('.feed-tools')) return;
@@ -35,6 +47,7 @@
       `<button class="seg-btn${c.id === 'all' ? ' active' : ''}" data-fc="${c.id}" type="button">${c.label}</button>`).join('')}</div>
       <button class="icon-btn feed-seat-clear hidden" id="feed-seat-clear" type="button" title="取消只看某人">✕</button>
       <span class="spacer"></span>
+      <button class="btn btn-sm btn-ghost" id="btn-feed-summary" type="button" title="让 AI 归纳本局发言内容（只总结谁说了什么，不分析局面）">🧠 AI 总结</button>
       <button class="btn btn-sm btn-ghost" id="btn-feed-copy" type="button" title="复制本局记录">⧉ 复制</button>`;
     dock.insertBefore(bar, dock.firstChild);
 
@@ -46,7 +59,49 @@
       applyFeedFilter();
     });
     $('btn-feed-copy').addEventListener('click', copyFeed);
+    $('btn-feed-summary').addEventListener('click', runFeedSummary);
     $('feed-seat-clear').addEventListener('click', () => { feedFilter.seat = 0; applyFeedFilter(); });
+  }
+
+  /* ---------- AI 对话总结（只归纳发言内容，不分析局面） ---------- */
+  function ensureSummaryBox() {
+    let box = $('feed-summary');
+    if (box) return box;
+    const list = $('game-feed');
+    if (!list || !list.parentNode) return null;
+    box = document.createElement('div');
+    box.id = 'feed-summary';
+    box.className = 'feed-summary hidden';
+    list.parentNode.insertBefore(box, list);
+    return box;
+  }
+
+  async function runFeedSummary() {
+    const btn = $('btn-feed-summary');
+    const box = ensureSummaryBox();
+    if (!box) return;
+    const old = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '🧠 生成中…'; }
+    box.classList.remove('hidden');
+    box.innerHTML = '<div class="fs-title">🧠 AI 对话总结</div><div class="fs-body">正在归纳本局发言…</div>';
+    try {
+      const token = localStorage.getItem('ww_token') || '';
+      const res = await fetch('/api/game/feed-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ('请求失败 ' + res.status));
+      const text = String(data.summary || '（本局还没有可总结的发言）');
+      box.innerHTML = '<div class="fs-title">🧠 AI 对话总结 <button class="fs-close" type="button" title="关闭">✕</button></div>'
+        + '<div class="fs-body">' + esc(text).replace(/\n/g, '<br>') + '</div>';
+      const c = box.querySelector('.fs-close');
+      if (c) c.onclick = () => box.classList.add('hidden');
+    } catch (e) {
+      box.innerHTML = '<div class="fs-title">🧠 AI 对话总结</div><div class="fs-body">生成失败：' + esc(e.message) + '</div>';
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = old || '🧠 AI 总结'; }
+    }
   }
 
   /** 依据 game.view.feed 给每条记录打上分类与座位，再按当前条件显隐。 */
@@ -65,7 +120,9 @@
       el.dataset.seat = it && it.actor ? String(it.actor) : '';
       let ok = feedFilter.cat === 'all' || cat === feedFilter.cat || (feedFilter.cat === 'vote' && cat === 'other' && /投票/.test(el.textContent));
       if (ok && feedFilter.seat) ok = (String(it && it.actor) === String(feedFilter.seat)) || (String(it && it.target) === String(feedFilter.seat));
-      el.classList.toggle('dim', !ok);
+      // 只显示匹配项：不匹配的直接隐藏（此前是"变透明"，容易让人以为记录丢了）
+      el.classList.remove('dim');
+      el.style.display = ok ? '' : 'none';
     }
     if (clear && feedFilter.seat) clear.title = '当前只看 ' + feedFilter.seat + ' 号相关，点击取消';
   }
@@ -75,7 +132,7 @@
     const box = $('game-feed');
     const text = v && v.feed && v.feed.length
       ? `狼人杀 Online · 房间 ${v.roomNo || ''} 第 ${v.day} 天记录\n` + v.feed.map(e =>
-          `[第${e.day}天][${e.type}]${e.actor ? ' ' + e.actor + '号' : ''}${e.target ? '→' + e.target + '号' : ''} ${e.detail || ''}`).join('\n')
+          `[第${e.day}天][${TYPE_CN[e.type] || '事件'}] ${detailCn(e)}`).join('\n')
       : (box ? box.innerText : '');
     if (!text.trim()) { if (window.toast) toast('还没有可复制的记录', true); return; }
     try {
@@ -294,7 +351,7 @@
   const GUIDE = [
     ['🌙', '欢迎来到月夜村庄', '左侧（手机上在底部）是主导航：大厅、房间、对局、好友、商店、我的。'],
     ['🏠', '开一局最快的方式', '大厅顶部「创建房间」立刻建房；人不够就点「AI 陪玩房」，建房并自动补位。'],
-    ['🧩', '板子与模式', '房间右侧可换预设板子或自定义角色配比；房主还能开语音同传、匿名伪装、双人组队。'],
+    ['🧩', '板子与模式', '房间右侧可换预设板子或自定义角色配比；房主还能开语音同传、匿名伪装。'],
     ['🎙', '发言与标记', '轮到你时底部会出现操作条；右侧「标记」可以给玩家打疑/好/狼，只有你自己看得到。'],
     ['⌨️', '想更快一点', '按 ? 看快捷键；🌙 面板里有 13 套主题、字号与密度档位，全存在本机。'],
   ];

@@ -35,7 +35,8 @@ async function doLogin() {
   try {
     const r = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: $('lg-user').value.trim(), password: $('lg-pass').value })
+      // scope=admin：登录到后台会话域，与玩家端会话互不挤掉（同一账号可同时登录两端）
+      body: JSON.stringify({ username: $('lg-user').value.trim(), password: $('lg-pass').value, scope: 'admin' })
     });
     const d = await r.json();
     if (!r.ok) { $('lg-err').textContent = d.error || '登录失败'; return; }
@@ -91,6 +92,7 @@ async function loadAi() {
   try {
     const c = await api('/api/admin/ai/config');
     $('ai-base').value = c.baseUrl || '';
+    $('ai-proxy').value = c.proxyUrl || '';
     $('ai-key').value = '';
     $('ai-model').value = c.model || '';
     $('ai-depth').value = c.depth || 'medium';
@@ -99,7 +101,8 @@ async function loadAi() {
     $('ai-retry').value = c.maxRetries != null ? c.maxRetries : 2;
     $('ai-conc').value = c.concurrency || 4;
     $('ai-enabled').checked = !!c.enabled;
-    $('ai-status').textContent = c.mock ? '（当前 mock 离线）' : (c.hasKey ? '（已存密钥）' : '');
+    const eff = c.effectiveProxyUrl ? ('；代理 ' + c.effectiveProxyUrl) : '；直连';
+    $('ai-status').textContent = (c.mock ? '（当前 mock 离线）' : (c.hasKey ? '（已存密钥）' : '')) + eff;
   } catch (e) { $('ai-status').textContent = '加载失败：' + e.message; }
 }
 async function saveAi() {
@@ -109,6 +112,7 @@ async function saveAi() {
     temperature: parseFloat($('ai-temp').value), timeoutSeconds: parseInt($('ai-timeout').value),
     maxRetries: parseInt($('ai-retry').value), concurrency: parseInt($('ai-conc').value),
     enabled: $('ai-enabled').checked,
+    proxyUrl: $('ai-proxy').value.trim(),
   };
   const key = $('ai-key').value.trim(); if (key) body.apiKey = key;
   try { await api('/api/admin/ai/config', 'POST', body); $('ai-status').textContent = '✅ 已保存'; $('ai-key').value = ''; loadAi(); }
@@ -326,7 +330,7 @@ async function createRedeem() {
 }
 
 /* ---------- 工单 ---------- */
-const STATUS_ZH = { OPEN: '待处理', PROCESSING: '处理中', REPLIED: '已回复', CLOSED: '已关闭' };
+const STATUS_ZH = { OPEN: '待处理', PROCESSING: '处理中', REPLIED: '已回复', WAITING_HUMAN: '待人工', CLOSED: '已关闭' };
 async function loadTickets() {
   try {
     const st = $('tk-filter').value, cat = ($('tk-catf') ? $('tk-catf').value : '');
@@ -336,15 +340,21 @@ async function loadTickets() {
     box.innerHTML = '';
     for (const t of list) {
       const el = document.createElement('div'); el.className = 'adm-card'; el.style.marginBottom = '10px';
-      el.innerHTML = `<div class="field"><span class="pill ${t.category === '举报' ? 'bad' : 'ok'}">${esc(t.category)}</span>
-        <b style="margin-left:8px">${esc(t.title)}</b>
-        <span class="hint" style="margin-left:8px">${esc(t.reporter || '')}${t.target ? ' → 举报 ' + esc(t.target) : ''} · ${esc((t.at || '').replace('T', ' ').slice(0, 16))} · <b>${esc(STATUS_ZH[t.status] || t.status)}</b></span></div>
-        <div class="hint" style="color:var(--text-main);margin:6px 0">${esc(t.content)}</div>
+      if (t.needsHuman) el.style.borderColor = '#c9922e';
+      el.innerHTML = `<div class="field">
+          <span class="pill ${t.category === '举报' ? 'bad' : 'ok'}">${esc(t.category)}</span>
+          ${t.support ? ' <span class="pill ok">客服会话</span>' : ''}
+          ${t.needsHuman ? ' <span class="pill bad">待人工</span>' : ''}
+          <b style="margin-left:8px">${esc(t.title)}</b>
+          <span class="hint" style="margin-left:8px">${esc(t.reporter || '')}${t.target ? ' → 举报 ' + esc(t.target) : ''} · ${esc((t.at || '').replace('T', ' ').slice(0, 16))} · <b>${esc(STATUS_ZH[t.status] || t.status)}</b></span></div>
+        <div id="tk-th-${t.id}" style="margin:8px 0;max-height:280px;overflow:auto;padding:6px 8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-deep)">
+          <span class="hint">对话加载中…</span></div>
         <div class="row-actions" style="flex-wrap:wrap">
           <input type="text" id="tk-r-${t.id}" placeholder="回复内容…" style="flex:1;min-width:200px;background:var(--bg-deep);border:1px solid var(--border-dim);border-radius:8px;padding:6px 8px;color:var(--text-main)">
           <select id="tk-s-${t.id}" style="background:var(--bg-deep);border:1px solid var(--border-dim);border-radius:8px;padding:6px;color:var(--text-main)">
             <option value="PROCESSING" ${t.status==='PROCESSING'?'selected':''}>处理中</option>
             <option value="REPLIED" ${t.status==='REPLIED'?'selected':''}>已回复</option>
+            <option value="WAITING_HUMAN" ${t.status==='WAITING_HUMAN'?'selected':''}>待人工</option>
             <option value="CLOSED" ${t.status==='CLOSED'?'selected':''}>已关闭</option>
           </select>
           <button class="btn sm primary" data-a="reply" data-id="${t.id}">回复</button>
@@ -359,6 +369,23 @@ async function loadTickets() {
         api('/api/admin/tickets/' + t.id + '/status', 'POST', { status: el.querySelector('#tk-s-' + t.id).value }).then(loadTickets, e => alert('修改失败：' + e.message));
       };
       box.appendChild(el);
+      // 展开完整对话：客服自动答复 / 人工回复 / 玩家消息，管理员据此接手聊天
+      api('/api/admin/tickets/' + t.id).then((d) => {
+        const host = el.querySelector('#tk-th-' + t.id);
+        if (!host) return;
+        const th = d.thread || [];
+        if (!th.length) { host.innerHTML = '<span class="hint">（暂无往来消息）</span>'; return; }
+        host.innerHTML = th.map((m) => {
+          const who = m.ai ? '🤖 在线客服' : (m.admin ? '👑 人工客服' : esc(m.author));
+          const color = m.ai ? 'var(--text-dim)' : (m.admin ? 'var(--accent)' : 'var(--text-main)');
+          return `<div class="hint" style="margin:5px 0;color:${color}"><b>${who}</b>：${esc(m.content)}
+            <span style="color:var(--text-faint)">${esc((m.at || '').replace('T', ' ').slice(5, 16))}</span></div>`;
+        }).join('');
+        host.scrollTop = host.scrollHeight;
+      }).catch(() => {
+        const host = el.querySelector('#tk-th-' + t.id);
+        if (host) host.innerHTML = '<span class="hint">对话加载失败</span>';
+      });
     }
   } catch (e) { $('tk-list').innerHTML = '<div class="hint">' + esc(e.message) + '</div>'; }
 }
@@ -399,6 +426,69 @@ async function opsEndAll() {
   if (!confirm('确定强制结束【所有】进行中的对局？这会中断全部 AI 调用并复位所有房间。')) return;
   try { const r = await api('/api/admin/ops/end-all', 'POST', {}); $('ops-msg').textContent = `✅ 已结束 ${r.ended} 局`; }
   catch (e) { $('ops-msg').textContent = '❌ ' + e.message; }
+}
+
+/* ---------- 一键清理（无用房间 / 无用账号） ---------- */
+function clOptions() {
+  const num = (id, def) => {
+    const el = $(id); const v = el ? parseInt(el.value, 10) : NaN;
+    return Number.isFinite(v) && v >= 0 ? v : def;
+  };
+  return {
+    roomIdleHours: num('cl-room-hours', 1),
+    accountMinAgeHours: num('cl-acc-hours', 72),
+    accountMaxLevel: num('cl-acc-level', 1),
+    accountMaxGames: num('cl-acc-games', 0),
+  };
+}
+function clTable(title, items, cols) {
+  if (!items.length) return `<div><b>${title}</b>：命中 0 条</div>`;
+  let h = `<div style="margin-top:8px"><b>${title}</b>（${items.length} 条）</div>`
+    + '<table class="adm" style="margin:6px 0"><tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr>';
+  for (const it of items.slice(0, 100)) {
+    h += '<tr>' + cols.map(c => `<td>${c[1](it)}</td>`).join('') + '</tr>';
+  }
+  h += '</table>';
+  if (items.length > 100) h += '<div class="hint">（仅显示前 100 条）</div>';
+  return h;
+}
+function clRenderResult(d) {
+  const box = $('cl-result'); if (!box) return;
+  const rooms = d.rooms || {}, accs = d.accounts || {};
+  const rItems = rooms.items || [], aItems = accs.items || [];
+  let h = `<div><b>无用房间</b>：命中 ${rooms.count || 0} 间`
+    + (rooms.deleted != null ? `，已删除 <b style="color:var(--accent)">${rooms.deleted}</b> 间` : '') + '</div>';
+  h += clTable('房间清单', rItems, [
+    ['房间号', r => esc(r.roomNo)], ['状态', r => esc(r.status)], ['房主', r => esc(r.hostName)],
+    ['人数', r => r.playerCount], ['类型', r => r.aiOnly ? 'AI 观战' : '普通'],
+    ['创建', r => (r.createdAt || '').replace('T', ' ').slice(0, 16)],
+  ]);
+  h += `<div style="margin-top:10px"><b>无用账号</b>：命中 ${accs.count || 0} 个`
+    + (accs.deleted != null ? `，已删除 <b style="color:var(--accent)">${accs.deleted}</b> 个` : '') + '</div>';
+  h += clTable('账号清单', aItems, [
+    ['ID', u => u.id], ['用户名', u => esc(u.username)], ['昵称', u => esc(u.nickname)],
+    ['等级', u => u.level], ['金币', u => u.gold], ['对局', u => u.games],
+    ['注册', u => (u.createdAt || '').replace('T', ' ').slice(0, 16)],
+  ]);
+  box.innerHTML = h;
+}
+async function clScan(rooms, accounts) {
+  const box = $('cl-result'); box.textContent = '扫描中…';
+  try {
+    const d = await api('/api/admin/ops/cleanup/scan', 'POST', Object.assign({ rooms, accounts }, clOptions()));
+    clRenderResult(d);
+  } catch (e) { box.textContent = '❌ ' + e.message; }
+}
+async function clRun(rooms, accounts) {
+  const what = [rooms ? '无用房间' : null, accounts ? '无用账号' : null].filter(Boolean).join(' + ');
+  if (!confirm(`确认清理【${what}】？\n\n按当前阈值命中的房间/账号将被永久删除，且不可撤销。\n建议先「预览」核对清单。`)) return;
+  const box = $('cl-result'); box.textContent = '清理中…';
+  try {
+    const d = await api('/api/admin/ops/cleanup/run', 'POST', Object.assign({ rooms, accounts }, clOptions()));
+    clRenderResult(d);
+    const msg = $('ops-msg');
+    if (msg) msg.textContent = `✅ 清理完成：房间 ${(d.rooms || {}).deleted || 0} 间、账号 ${(d.accounts || {}).deleted || 0} 个`;
+  } catch (e) { box.textContent = '❌ ' + e.message; }
 }
 
 /* ---------- 论坛管理 ---------- */
@@ -473,10 +563,10 @@ async function boot() {
   // 显示设置：读取 + 保存
   // 功能开关
   const FEAT_LIST = [
-    ['quickai', 'AI 陪玩房'], ['spectate', '观战加入'], ['shop', '商店'], ['friends', '好友'],
+    ['quickai', 'AI 陪玩房'], ['aiShow', '全 AI 队局（观战）'], ['spectate', '观战加入'], ['shop', '商店'], ['friends', '好友'],
     ['forum', '论坛'], ['ranking', '排行榜'], ['checkin', '每日签到'], ['news', '更新动态'],
     ['tickets', '工单'], ['download', '下载应用'], ['guide', '安装指导'],
-    ['voiceMode', '房间·语音同传'], ['duo', '房间·双人组队'], ['items', '房间·功能道具赛'],
+    ['voiceMode', '房间·语音同传'], ['items', '房间·功能道具赛'],
     ['invite', '房间·邀请好友'], ['addai', '房间·补位 AI']
   ];
   if ($('feat-grid')) {
@@ -519,6 +609,13 @@ async function boot() {
   const oo = $('ops-online'); if (oo) oo.onclick = refreshOnline;
   const oe = $('ops-export-users'); if (oe) oe.onclick = opsExportUsers;
   const oa = $('ops-end-all'); if (oa) oa.onclick = opsEndAll;
+  // 一键清理
+  const clSr = $('cl-scan-rooms'); if (clSr) clSr.onclick = () => clScan(true, false);
+  const clRa = $('cl-run-rooms'); if (clRa) clRa.onclick = () => clRun(true, false);
+  const clSa = $('cl-scan-accs'); if (clSa) clSa.onclick = () => clScan(false, true);
+  const clRac = $('cl-run-accs'); if (clRac) clRac.onclick = () => clRun(false, true);
+  const clSall = $('cl-scan-all'); if (clSall) clSall.onclick = () => clScan(true, true);
+  const clRall = $('cl-run-all'); if (clRall) clRall.onclick = () => clRun(true, true);
   const fr = $('forum-refresh'); if (fr) fr.onclick = loadForum;
   const rr = $('rooms-refresh'); if (rr) rr.onclick = loadRooms;
   $('lg-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
