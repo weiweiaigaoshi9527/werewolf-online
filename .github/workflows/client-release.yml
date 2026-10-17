@@ -96,6 +96,9 @@ jobs:
     container: ubuntu:22.04
     steps:
       - name: 安装构建依赖
+        # 本步骤在 checkout 之前执行，此时 werewolf_app/ 尚不存在；
+        # 必须覆盖工作流级 working-directory，否则 chdir 失败。
+        working-directory: .
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
