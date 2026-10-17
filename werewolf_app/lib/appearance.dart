@@ -8,6 +8,8 @@
 /// localStorage 与客户端 SharedPreferences 并不共享，键名一致只为语义对照）。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -331,7 +333,8 @@ class Appearance extends ChangeNotifier {
   bool _dense = false;
   bool _motion = true;
   double _bright = 1; // 0.4 ~ 1.6
-  String? _bgPath; // 自定义背景（本地图片绝对路径）
+  String? _bgPath; // 自定义背景（桌面/移动：本地图片绝对路径）
+  Uint8List? _bgBytes; // 自定义背景（Web：file_picker 回传的图片字节，浏览器不给本地路径）
 
   String get themeId => _themeId;
   String get accentId => _accentId;
@@ -340,6 +343,7 @@ class Appearance extends ChangeNotifier {
   bool get motion => _motion;
   double get bright => _bright;
   String? get bgPath => _bgPath;
+  Uint8List? get bgBytes => _bgBytes;
 
   WwThemeDef get themeDef =>
       kWwThemes.firstWhere((t) => t.id == _themeId, orElse: () => kWwThemes.first);
@@ -442,8 +446,19 @@ class Appearance extends ChangeNotifier {
 
   Future<void> setBgPath(String? path) async {
     _bgPath = (path == null || path.isEmpty) ? null : path;
+    _bgBytes = null;
     notifyListeners();
     await _save(_kBg, _bgPath);
+  }
+
+  /// Web 专用：浏览器不暴露本地文件路径，file_picker 只回图片字节，因此把字节留在内存里渲染
+  /// （见 platform/bg_image.dart）。字节不落盘：base64 进 localStorage 会顶爆浏览器配额，
+  /// 所以 Web 上的自定义背景不跨会话保留。桌面/移动走 [setBgPath]。
+  Future<void> setBgBytes(Uint8List? bytes) async {
+    _bgBytes = (bytes == null || bytes.isEmpty) ? null : bytes;
+    _bgPath = null;
+    notifyListeners();
+    await _save(_kBg, null);
   }
 
   Future<void> clearBg() => setBgPath(null);
@@ -472,6 +487,7 @@ class Appearance extends ChangeNotifier {
     _motion = true;
     _bright = 1;
     _bgPath = null;
+    _bgBytes = null;
     notifyListeners();
   }
 }

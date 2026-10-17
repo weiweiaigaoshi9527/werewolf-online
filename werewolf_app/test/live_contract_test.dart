@@ -32,7 +32,7 @@ void main() {
   final user2 = (Platform.environment['WW_LIVE_USER2'] ?? '').trim();
   final pass2 = (Platform.environment['WW_LIVE_PASS2'] ?? '').trim();
   final enabled = base.isNotEmpty && user.isNotEmpty && pass.isNotEmpty;
-  // 双人结队与踢人需要两个真实客户端，故第二个账号可选。
+  // 转让房主与踢人需要两个真实客户端，故第二个账号可选。
   final enabled2 = enabled && user2.isNotEmpty && pass2.isNotEmpty;
 
   group('live 契约（真实服务端）', () {

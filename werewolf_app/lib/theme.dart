@@ -1,9 +1,7 @@
-import 'dart:io' show File;
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'appearance.dart';
+import 'platform/bg_image.dart';
 
 /// 外观令牌层：把 [appearance] 的当前选择暴露成一组**顶层 getter**，界面直接引用
 /// `kBg` / `kAccent` 等即可，切换主题时由 [WerewolfApp] 重建整棵树取到新值。
@@ -149,8 +147,10 @@ class WwStageBackground extends StatelessWidget {
     final c = kPalette;
     final a = appearance;
     final bright = a.bright;
-    final bgPath = a.bgPath;
-    final hasCustom = bgPath != null && bgPath.isNotEmpty && !kIsWeb;
+    // 自定义背景：桌面/移动是本地文件路径，Web 是 file_picker 回传的字节
+    // （见 platform/bg_image.dart）。拿不到图源就当作「没有自定义背景」。
+    final bgImage = customBgImage(path: a.bgPath, bytes: a.bgBytes);
+    final hasCustom = bgImage != null;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -176,19 +176,19 @@ class WwStageBackground extends StatelessWidget {
             ),
           ),
         ),
-        if (hasCustom) _customImage(bgPath, bright),
+        if (bgImage != null) _customImage(bgImage, bright),
       ],
     );
   }
 
-  Widget _customImage(String path, double bright) {
+  Widget _customImage(ImageProvider image, double bright) {
     return IgnorePointer(
       child: Opacity(
         opacity: (0.5 * bright).clamp(0.0, 1.0),
         child: ColorFiltered(
           colorFilter: ColorFilter.matrix(_brightnessMatrix(bright)),
-          child: Image.file(
-            File(path),
+          child: Image(
+            image: image,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),

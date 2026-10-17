@@ -1,0 +1,11 @@
+{
+    "name": "狼人杀",
+    "short_name": "狼人杀",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#090D18",
+    "theme_color": "#090D18",
+    "description": "狼人杀客户端（Web 版）",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false
+}

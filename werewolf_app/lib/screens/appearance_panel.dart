@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -282,7 +280,9 @@ class AppearancePanel extends StatelessWidget {
           if (appearance.bgPath != null)
             Expanded(
               child: Tx(
-                appearance.bgPath!.split(Platform.pathSeparator).last,
+                // 只取文件名：不依赖 Platform.pathSeparator（Web 上没有 Platform），
+                // 正反斜杠都当分隔符，与桌面/移动结果一致。
+                appearance.bgPath!.split(RegExp(r'[/\\]')).last,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: kFaint, fontSize: 11.5),
               ),
@@ -291,22 +291,32 @@ class AppearancePanel extends StatelessWidget {
       );
 
   /// 选择本地图片作背景（网页端限 ≤3MB，这里同样限制）。
+  ///
+  /// 一律 withData 取字节：桌面/移动 file_picker 给真实路径（走 setBgPath），
+  /// Web 拿不到路径、只有字节（走 setBgBytes，用 Image.memory 渲染）。
   Future<void> _pickBg(BuildContext context) async {
     FilePickerResult? picked;
     try {
-      picked = await FilePicker.platform.pickFiles(type: FileType.image, withData: false);
+      picked = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
     } catch (e) {
       if (context.mounted) _toast(context, '当前平台不支持选择文件：$e');
       return;
     }
     final f = picked?.files.single;
-    final path = f?.path;
-    if (f == null || path == null) return;
+    if (f == null) return;
     if (f.size > 3 * 1024 * 1024) {
       if (context.mounted) _toast(context, '图片过大（≤3MB）');
       return;
     }
-    await appearance.setBgPath(path);
+    final path = f.path;
+    if (path != null && path.isNotEmpty) {
+      await appearance.setBgPath(path);
+    } else if (f.bytes != null) {
+      await appearance.setBgBytes(f.bytes!);
+    } else {
+      if (context.mounted) _toast(context, '当前平台拿不到图片数据');
+      return;
+    }
     if (context.mounted) _toast(context, '背景已更新');
   }
 

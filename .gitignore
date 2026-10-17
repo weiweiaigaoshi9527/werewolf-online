@@ -48,6 +48,13 @@ test/*.json
 # 开发调试残留（抓包/截图产物）
 /tools/uireflow/*.out
 /tools/uireflow/*.err
+# 服务端本地运行日志（勿入库）
+/server-run*.out
+/server-run*.err
+
+# ===== 本地 Agent/IDE 工具目录（含会话与技能缓存）=====
+/.trae/
+/trae-to-deepseek/
 
 # ===== 开发脚本目录里的凭据（勿入库）=====
 /tools/uireflow/*token*

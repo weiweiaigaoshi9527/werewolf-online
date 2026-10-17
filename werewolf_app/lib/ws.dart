@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'config.dart';
+import 'platform/ws_channel.dart';
 
 /// 原始 WebSocket 客户端：连 /ws?token=，按 type 分发；断线指数退避重连；25s 心跳。
 /// 协议与网页版 HallWebSocketHandler 完全一致。
@@ -31,7 +31,8 @@ class WsClient {
     if (_closed) return;
     try {
       final uri = config.wsUri(token);
-      _ch = IOWebSocketChannel.connect(uri, pingInterval: const Duration(seconds: 25));
+      // 平台适配：桌面/移动是 IO 版 WebSocket（带 25s 协议级心跳），Web 是浏览器原生 WebSocket。
+      _ch = connectWebSocket(uri);
       _retry = 0;
       onStatus(true);
       _sub = _ch!.stream.listen(

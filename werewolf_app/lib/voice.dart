@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
-import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'config.dart';
+import 'platform/ws_channel.dart';
 import 'voice_codec.dart';
 
 /// 一条语音字幕（服务端逐句下发）。
@@ -29,7 +30,7 @@ class VoiceClient {
   void Function(String? name)? onSpeaking;
   void Function(bool denied)? onDenied;
 
-  IOWebSocketChannel? _ch;
+  WebSocketChannel? _ch;
   StreamSubscription<dynamic>? _sub;
   Timer? _ping;
   bool _closed = false;
@@ -58,8 +59,8 @@ class VoiceClient {
   void connect() {
     if (connected && _ch != null) return;
     try {
-      _ch = IOWebSocketChannel.connect(config.wsUriVoice(token),
-          pingInterval: const Duration(seconds: 25));
+      // 平台适配：桌面/移动 IO 版 WebSocket，Web 浏览器原生 WebSocket（见 platform/ws_channel.dart）。
+      _ch = connectWebSocket(config.wsUriVoice(token));
       connected = true;
       _sub = _ch!.stream.listen(_onData, onDone: _onLost, onError: (_) => _onLost());
       _ping = Timer.periodic(const Duration(seconds: 25), (_) => _sendCtl({'type': 'ping'}));

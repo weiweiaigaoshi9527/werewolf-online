@@ -214,7 +214,11 @@ H2 文件库，`Connection` 池 20，`ddl-auto: update`（首次启动自动建�
 
 ### 8.5 平台与测试
 
-支持 `windows` / `linux` / `android`。测试 14 个文件：`config_test`、`widget_test`、`hotkeys_test`、`sfx_test`、`animations_test`、`ws_events_test`、`room_screen_test`、`replay_engine_test`、`replay_screen_test`、`voice_codec_test`、`admin_extra_test`、`updates_admin_test`、`p3_screens_test`、`live_contract_test`（**live 契约测试在未设 `WW_LIVE_*` 环境变量时自动 skip**）。当前基线：**152 通过 / 21 跳过**。
+支持 `windows` / `linux` / `android` / `web` / `ios`。Web 平台靠 `lib/platform/` 下的条件导入隔离 `dart:io`
+（自签证书放行 / 自定义背景图 / 导出文件 / WebSocket 通道，各有一份 `*_io.dart` + `*_web.dart`，门面用 `export ... if (dart.library.js_interop)`）。
+iOS 只能出**未签名包**（无证书），真机安装需自行用开发者证书重签。
+
+测试 20 个文件（`test/` 全量）：`config_test`、`widget_test`、`hotkeys_test`、`sfx_test`、`animations_test`、`ws_events_test`、`room_screen_test`、`replay_engine_test`、`replay_screen_test`、`voice_codec_test`、`admin_extra_test`、`updates_admin_test`、`p3_screens_test`、`live_contract_test`（**live 契约测试在未设 `WW_LIVE_*` 环境变量时自动 skip**）、`scene3d_test`、`appearance_test`、`bgm_test`、`feed_filter_test`、`i18n_test`、`marks_test`。当前基线：**289 通过 / 21 跳过**。
 
 ---
 
@@ -247,13 +251,15 @@ H2 文件库，`Connection` 池 20，`ddl-auto: update`（首次启动自动建�
 **Flutter 客户端**
 - ⚠️ **Flutter 不在 PATH**，必须用全路径 `G:\flutter\bin\flutter.bat`、`G:\flutter\bin\dart.bat`，并统一加 **`--no-version-check`**（否则会 `git fetch --tags` 卡 5 分钟）。
 - 本机出包：`tools\build-all.ps1`（Windows zip + Android 分架构 APK），产物进 `release-artifacts\`（已 gitignore）。
-- 版本号在 `pubspec.yaml` 的 `version:`（当前 `1.2.0+3`）；打 `v*` tag 触发 CI 出三端并汇总 Release。
+- 版本号在 `pubspec.yaml` 的 `version:`（当前 `1.4.0+5`）；打 `v*` tag 触发 CI 出五端并汇总 Release。
 
-**三端 CI**：仓库 `weiweiaigaoshi9527/werewolf-client`，工作流 `.github/workflows/client-release.yml`。
-- `meta`（读版本号）→ `quality`（`dart run tool/check_workflow.dart` + `flutter analyze --no-pub` + `flutter test`）→ `windows` / `linux` / `android` → `release`（仅 tag 时建 Release）。
+**五端 CI**：仓库 `weiweiaigaoshi9527/werewolf-client`，工作流 `.github/workflows/client-release.yml`。
+- `meta`（读版本号）→ `quality`（`dart run tool/check_workflow.dart` + `flutter analyze --no-pub` + `flutter test`）→ `windows` / `linux` / `android` / `web` / `ios` → `release`（仅 tag 时建 Release）。
 - Windows 必须 `runs-on: windows-2022`（`windows-latest` 已迁至 VS 2026，Flutter 3.24.5 会算出错误的生成器 `Visual Studio 16 2019`）。
 - Linux 用 `container: ubuntu:22.04` 干净容器（宿主镜像的第三方源会让 `libgstreamer1.0-dev` 依赖解析失败）；apt 需装 `libgstreamer1.0-dev` / `libgstreamer-plugins-base1.0-dev`（`audioplayers` 的 Linux 后端依赖）与 `jq`；容器内必须 `git config --global --add safe.directory '*'`。
 - Linux 出包脚本 `packaging\linux\make-deb.sh` → `dist/werewolf-client_<ver>_amd64.deb` + `dist/werewolf-client-<ver>-linux-x64-portable.tar.xz`；deb 的 `Depends` 含 `libgtk-3-0, libglu1-mesa, libstdc++6, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-good`。
+- Web：`ubuntu-latest`，先 `flutter config --enable-web`（缺这一步 `build web` 会报 unsupported），再 `flutter build web --release`，把 `build/web` 压成 `werewolf-client-<ver>-web.zip`。
+- iOS：固定 `runs-on: macos-14`（Flutter 3.24.5 需 Xcode 15；`macos-latest` 已到 Xcode 16），`flutter build ios --release --no-codesign` 后把 `Runner.app` 压成 `werewolf-client-<ver>-ios-unsigned.zip`。
 
 ---
 
@@ -271,22 +277,56 @@ H2 文件库，`Connection` 池 20，`ddl-auto: update`（首次启动自动建�
 10. **H2 保留字**：历史表字段用过 `day_no` / `role_name` 规避 `day` / `role` / `type`；新增列注意 NOT NULL 迁移（`columnDefinition="... default 0"`）。
 11. `git` 不读 Windows 系统代理：需要经代理推 GitHub 时必须 `git config http.proxy` / `https.proxy` 指向 `http://127.0.0.1:3067`。
 12. 提交信息、代码注释、文档**统一用中文**。
+13. **`Read`/`Edit` 对个别文件会返回过期缓存，并「报成功但没写盘」**（实测 `lib/screens/game.dart`、`lib/i18n_client.dart`）。
+    编辑后必须用 `git status --porcelain` 或 `Select-String` 在磁盘上确认；没生效就用
+    `[System.IO.File]::ReadAllText` → `.Replace` → `WriteAllText`（UTF8 无 BOM；这两个文件是 **CRLF**）直接改盘。
+14. **PowerShell 命令不能太长**：工具会把长命令落成 `command.ps1` 再执行，而本机执行策略禁止运行脚本，
+    结果是静默失败（退出码 0 但什么都没做）。拆成较短的单行、用 `;` 串联。
+15. **当前沙箱禁止创建任何 `*.lock`**，因此 `git commit` / `git push` / `git tag` 无法在代理内执行；
+    需在「设置 → 权限与审批 → 自定义配置」放宽，或由人工在外部终端执行。
 
 ---
 
 ## 13. 当前状态与待办
 
 - 服务端：运行中（`server-run20.out` 为最新日志），端口 11111。
-- Flutter 客户端：`pubspec.yaml` 版本 **`1.2.0+3`**；master 最新提交 `b685842`（已推 origin）；tag **`v1.2.0`** 已推送并触发 CI，三端构建 + Release 均成功，产物已取回 `G:\狼人杀\客户端`（`安装说明.md` 已同步为 1.2.0）。
-- **已完成：客户端功能对等适配（v1.2.0 批次）**。本轮落地 C 类「平台相关」四项：
-  - **外观与主题**：`lib/appearance.dart` + `lib/screens/appearance_panel.dart`（🌙 面板：13 套主题 / 7 种强调色 / 字号 / 密度 / 动效 / 背景亮度 / 自定义背景），热键 `T` 随机主题、`D` 切换密度已接上。
-  - **多语言 i18n**：`lib/i18n.dart`（引擎 + `Tx` 组件 + 🌐 语言弹层）、`lib/i18n_data.dart`（照搬 `i18n.js` 的 `I18N_TEXT`/`I18N_TEXT_EXTRA`/`I18N_PATTERNS`）、`lib/i18n_client.dart`（客户端专有补充词条）；中/英/日/韩/俄五语，持久化键 `ww_lang` 与网页端一致。
-  - **本地 MP3 背景音乐**：`lib/bgm.dart` + `lib/screens/bgm_panel.dart`（🎵 面板：多选添加 / 列表 / 上一首 / 播放暂停 / 下一首 / 音量 / 循环），沿用本项目约定只存本机绝对路径、不上传、不自动播放。
-  - **后台一键清理**：`lib/screens/admin.dart` 接 `/api/admin/ops/cleanup/scan|run`（无用房间 + 无用账号，先预览后执行，危险操作走确认词）；请求体字段名逐字对齐后端 `CleanupBody`（`roomIdleHours` 等，勿意译）。
-  - 验证：`flutter analyze` 0 问题；离线套件 **239 项全通过**（新增 `i18n_test` / `bgm_test` / `appearance_test` 与清理请求体单测）。
-- **本轮未做：3D 视角场景（P5）** —— 经评估，本机工具链 Flutter 3.24.5 下 `flutter_scene` 需 ≥3.29 且依赖 Impeller、`three_dart`/`flutter_gl` 已停更，均无法保证离线可编译；用户决定**跳过**，对局继续使用 2D 座位圈。若日后要补，需先升级 Flutter 工具链（会影响三端 CI 与产物）。
-- 已登记的历史偏差（复核结果）：Web 版 `M` 是座位标记循环，Flutter 端 `M` 为麦克风开关、座位标记另用 `V`——**已确认为有意保留**；Web 版 `T`/`D` 热键**本轮已补齐**；Web 版批量删除发 `op="del"` 而服务端只认 `"delete"`，Flutter 端按服务端契约发 `"delete"`（正确）；`/api/admin/local/**` 需 127.0.0.1 + `X-WW-Local: 1`，客户端**有意不实现**。
-- 出包路径（下次沿用）：改完 → 提升 `pubspec.yaml` 版本 → 提交并推 master → 推 `v*` tag → CI 自动出三端并汇总 Release → 取回产物放入 `G:\狼人杀\客户端` 并更新 `客户端\安装说明.md` → `robocopy /MIR` 同步镜像。
+- Flutter 客户端：`pubspec.yaml` 版本 **`1.4.0+5`**，已改完待提交并打 `v1.4.0` tag。
+- ⚠️ **`v1.3.0` 是废弃版本**：3D 引擎写好了但**从未接入对局页**（`game.dart` 既没有开关也没有挂载点；
+  组件测试直接挂载 `Scene3dView` 绕过了页面，于是「功能不可达但测试全绿」）。本地 1.3.0 产物已删，
+  GitHub Release 待删。修复见下面 v1.4.0 批次。
+- **已完成：3D 视角场景（v1.3.0 批次，P5）**。网页端 `static/js/scene3d.js` 走 Three.js + WebGL；
+  本端工具链（Flutter 3.24.5）没有可用且离线安全的 3D 引擎（`flutter_scene` 需 ≥3.29 且依赖 Impeller，
+  `three_dart`/`flutter_gl` 已停更），因此**用 Flutter 自带的 `Canvas.drawVertices` 自研了轻量软件渲染器，零新增依赖**：
+  - `lib/scene3d.dart`：内核。`V3`/`M4`/透视投影 + 程序化图元（盒/柱/锥/球/胶囊/环/车削/圆盘/八面体）
+    + 光栅化（背面剔除 → 兰伯特+高光+雾 → 按视深排序 → **单次** `drawVertices` 批量提交）
+    + 亚像素面剔除（远景自动省掉小面，16 人场景 1.8 万面里只实绘约 6000 面）。
+  - `lib/scene3d_avatar.dart`：11 套皮肤（配色逐条对齐网页端 `SKINS` 表）+ 坐姿人形 + 头饰/披风/影翼/镰刀
+    + 凳子与墓碑；网页端的程序化布纹（`clothTexture`）以**逐面配色**近似（`clothFaceColors`）。
+  - `lib/scene3d_scene.dart`：相机（阻尼/拖拽/滚轮与双指缩放/重置·远景·近景）、圆桌+提灯+地面+星空、
+    座位圆环布局（1 号位在正前方）、昼夜光照、呼吸/眨眼/转头/发言者光环/近景跟随发言者。
+  - `lib/screens/scene3d_view.dart`：Ticker 驱动（30fps 上限）+ 手势 + 2D 叠加（名牌/发言气泡/地面光环/
+    贴地假阴影/碑文）；开关持久化键沿用网页端 **`ww_mode_3d`**。
+  - 接入（**v1.4.0 才真正完成**）：`lib/screens/game.dart` 顶栏 3D 开关 + 座位区 3D/2D 二选一
+    （`ListenableBuilder` 监听 `scene3dMode`），并补齐 6 个词条 × 4 语言。
+  - 验证：`test/scene3d_test.dart` 50 项（含**像素级**渲染断言：真的画出了东西、背面剔除生效、
+    亚像素剔除在起作用、画家算法在两种加入顺序下都正确），另加一组「接线」回归——
+    从 `GameScreen` 出发断言开关开启后确实挂载 `Scene3dView`、高度夹到 420、关回 2D 后卸载。
+    `flutter analyze` 0 问题，全量 **289 项**通过。
+  - **视觉验证揪出并修掉两个真实缺陷**（只靠单测发现不了，靠出 PNG 人眼核对才发现）：
+    ① 圆柱角度基准与 Three.js 差 90°（Three.js 的 `theta` 从 +Z 起算），导致**披风开口朝错方向、盖住胸口**；
+    ② 光栅化写缓冲误用「原始面序号 `f*6`」而非「绘制次序 `k*6`」，使**深度排序完全失效**——
+       表现为后加入的网格永远盖住先加入的（披风盖住躯干）。已补画家算法像素断言防回归。
+- **v1.4.0 批次**：
+  - 补 Web / iOS 两个平台（`lib/platform/` 条件导入隔离 `dart:io`；iOS 脚手架 + 麦克风/本地网络权限说明）。
+  - 3D 观感：地面假阴影改三层同心椭圆、新增 Fresnel 边缘光、躯干/头部/头发/披风提高分段。
+  - 修掉第三个真实缺陷：桌面是「木顶 + 仅高 0.01 的毡心」两块共面大面，画家算法按面片重心排序把毡心
+    近半块排到桌板后面，表现为**桌面缺一半**；改为「侧壁 + 整张毛毡顶面」，彻底消除共面重叠。
+  - 性能：16 人 21134 面、实绘 8606 面、**5.47ms/帧**（30fps 预算 33ms，余量充足）。
+- **历史批次（v1.2.0）**：外观主题（13 套主题/强调色/字号/密度/动效/背景）、多语言 i18n（中英日韩俄）、
+  本地 MP3 背景音乐、后台一键清理（`/api/admin/ops/cleanup/scan|run`）。
+- 已登记的历史偏差（复核结果）：Web 版 `M` 是座位标记循环，Flutter 端 `M` 为麦克风开关、座位标记另用 `V`——**已确认为有意保留**；Web 版 `T`/`D` 热键**已补齐**；Web 版批量删除发 `op="del"` 而服务端只认 `"delete"`，Flutter 端按服务端契约发 `"delete"`（正确）；`/api/admin/local/**` 需 127.0.0.1 + `X-WW-Local: 1`，客户端**有意不实现**。
+- 出包路径（下次沿用）：改完 → 提升 `pubspec.yaml` 版本 → 提交并推 master → 推 `v*` tag → CI 自动出五端并汇总 Release → 取回产物放入 `G:\狼人杀\客户端` 并更新 `客户端\安装说明.md` → `robocopy /MIR` 同步镜像。
 - 镜像注意：`robocopy /MIR` 必须排除 `.git`、`build`、`.dart_tool`、`ephemeral`、`.plugin_symlinks`（否则 `*/flutter/ephemeral/.plugin_symlinks` 会被复制成断裂 reparse point，之后连 `flutter build windows` 都崩在 `Cannot create link ... errno 183`）。
+
 
 </content>

@@ -5,7 +5,7 @@
 //  1. workflow 里引用的每个仓库路径确实存在（防止改名后 CI 才 404）；
 //  2. meta job 抽版本号的正则，对当前 pubspec.yaml 能算出合法版本；
 //  3. quality job 跑的是整个离线套件（不允许退化成只列几个文件）；
-//  4. 三端 job 齐全，且 release 依赖了三端。
+//  4. 各平台 job 齐全，且 release 依赖了全部平台。
 // ignore_for_file: avoid_print
 
 import 'dart:io';
@@ -26,13 +26,13 @@ void main() {
   // 1) 引用的仓库路径必须存在。
   //    只认「带斜杠的目录路径」或「已知文件名」，否则会误伤 apt 包名
   //    （libgtk-3-dev / libstdc++-12-dev）与 runner、artifact 名（windows-latest、linux-x64）。
-  final pathRe = RegExp(r'(?<![\w./-])((?:lib|test|tool|packaging|android|windows|linux)/[\w./-]*|pubspec\.yaml|\.github/workflows/[\w.-]+)');
+  final pathRe = RegExp(r'(?<![\w./-])((?:lib|test|tool|packaging|android|windows|linux|web|ios)/[\w./-]*|pubspec\.yaml|\.github/workflows/[\w.-]+)');
   final referenced = <String>{
     for (final m in pathRe.allMatches(text))
       m.group(1)!.replaceAll(RegExp(r'[.,;]+$'), ''),
   };
   // 构建产物路径（CI 里现生成的）不参与检查
-  const generated = ['build/windows', 'build/app', 'build/linux'];
+  const generated = ['build/windows', 'build/app', 'build/linux', 'build/web', 'build/ios'];
   for (final p in referenced.toList()..sort()) {
     if (generated.any((g) => p.startsWith(g))) continue;
     if (!File(p).existsSync() && !Directory(p).existsSync()) {
@@ -59,13 +59,13 @@ void main() {
     errors.add('quality job 缺 flutter analyze');
   }
 
-  // 4) 三端与 release 依赖
-  for (final job in ['meta', 'quality', 'windows', 'linux', 'android', 'release']) {
+  // 4) 各平台 job 与 release 依赖
+  for (final job in ['meta', 'quality', 'windows', 'linux', 'android', 'web', 'ios', 'release']) {
     if (!RegExp('^  $job:', multiLine: true).hasMatch(text)) errors.add('缺少 job：$job');
   }
   final release = _jobBody(text, 'release');
   if (release != null) {
-    for (final need in ['windows', 'linux', 'android']) {
+    for (final need in ['windows', 'linux', 'android', 'web', 'ios']) {
       if (!release.contains(need)) errors.add('release job 应依赖 $need');
     }
   }

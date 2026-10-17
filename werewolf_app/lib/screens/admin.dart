@@ -1,10 +1,8 @@
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../api.dart';
+import '../platform/export_file.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'common.dart';
@@ -718,28 +716,21 @@ class _UsersState extends _AdminSectionState<_Users> {
     }
   }
 
-  /// 导出全部用户为 CSV：后端直接回原始字节（UTF-8 BOM），用 file_picker 落盘。
-  /// file_picker 8.1.2 的 saveFile 支持 bytes 参数；个别平台只回路径不落盘，
-  /// 因此若路径不存在或文件为空，再用 dart:io 的 File 兜底写一次。
+  /// 导出全部用户为 CSV：后端直接回原始字节（UTF-8 BOM）。
+  /// 落盘细节交给 platform/export_file.dart：桌面/移动写文件（file_picker 的 saveFile +
+  /// IO 版兜底写），Web 退化成触发浏览器下载。返回 null 表示用户取消。
   Future<void> _exportCsv() async {
     final store = context.read<AppStore>();
     try {
       final bytes = await store.api.getBytes('/api/admin/ops/export/users');
-      final path = await FilePicker.platform.saveFile(
+      final saved = await saveExportFile(
         dialogTitle: '导出用户 CSV',
         fileName: 'users.csv',
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: const ['csv'],
         bytes: Uint8List.fromList(bytes),
       );
-      if (path == null) return; // 用户取消
-      try {
-        final f = File(path);
-        if (!await f.exists() || (await f.length()) == 0) {
-          await f.writeAsBytes(bytes, flush: true);
-        }
-      } catch (_) {}
-      if (mounted) snack(context, '已导出用户 CSV：$path');
+      if (saved == null) return; // 用户取消
+      if (mounted) snack(context, '已导出用户 CSV：$saved');
     } on AppError catch (e) {
       if (mounted) snack(context, e.message, error: true);
     } catch (e) {

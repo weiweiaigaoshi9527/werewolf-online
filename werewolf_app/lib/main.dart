@@ -1,5 +1,3 @@
-import 'dart:io' show HttpOverrides, HttpClient, SecurityContext, X509Certificate;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +6,7 @@ import 'bgm.dart';
 import 'config.dart';
 import 'i18n.dart';
 import 'notice.dart';
+import 'platform/insecure_http.dart';
 import 'store.dart';
 import 'theme.dart';
 import 'screens/server_setup.dart';
@@ -15,21 +14,13 @@ import 'screens/login.dart';
 import 'screens/home_shell.dart';
 import 'screens/room.dart';
 import 'screens/game.dart';
-
-/// 局域网自签证书调试：忽略证书校验。公网正式证书下无需（可在设置里关掉“允许不安全连接”）。
-class _InsecureOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? ctx) =>
-      super.createHttpClient(ctx)
-        ..badCertificateCallback = (X509Certificate c, String h, int p) => true;
-}
+import 'screens/scene3d_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final config = await ServerConfig.load();
-  if (config.allowInsecure && !kIsWeb) {
-    HttpOverrides.global = _InsecureOverrides();
-  }
+  // 自签证书放行：桌面/移动靠 HttpOverrides，Web 是空操作（TLS 由浏览器负责）。
+  if (config.allowInsecure) allowInsecureHttp();
   final api = ApiClient(config);
   api.token = await ServerConfig.loadToken();
   final store = AppStore(api)..token = api.token;
@@ -37,6 +28,7 @@ Future<void> main() async {
   await appearance.load(); // 外观（主题/强调色/字号/密度/动效/背景）同样要早于第一帧
   await i18n.load(); // 语言（ww_lang）也要早于第一帧，否则会先闪一帧中文再切走
   await bgm.load(); // 背景音乐播放列表（ww_bgm）：只读回列表，不自动播放
+  await scene3dMode.load(); // 3D 视角开关（ww_mode_3d）：与网页端一样在进入前恢复
   runApp(ChangeNotifierProvider.value(value: store, child: WerewolfApp(config: config, store: store)));
 }
 
@@ -75,8 +67,13 @@ class _WerewolfAppState extends State<WerewolfApp> {
           ),
           child: Stack(
             children: [
-              // 页面背景舞台（主题渐变 / 自定义背景图 / 背景亮度），对齐网页端 .stage-bg
-              const Positioned.fill(child: WwStageBackground()),
+              // 页面背景舞台（主题渐变 / 自定义背景图 / 背景亮度），对齐网页端 .stage-bg。
+              // 这里显式给一个运行时 key：背景是常驻层，不在下面按 fingerprint 重挂的
+              // KeyedSubtree 里，若写成 const 子组件，父级重建时会把它原样复用而不重绘，
+              // 于是「选完背景图要重启才生效」。
+              Positioned.fill(
+                child: WwStageBackground(key: ValueKey('ww-stage-${appearance.fingerprint}')),
+              ),
               if (child != null) Positioned.fill(child: child),
               Consumer<AppStore>(builder: (context, s, _) => WwNoticeLayer(store: s)),
               Consumer<AppStore>(

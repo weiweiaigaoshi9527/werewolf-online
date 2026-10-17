@@ -1,7 +1,8 @@
-name: 三端客户端构建
+name: 五端客户端构建
 
 # Linux 桌面版无法在 Windows 上交叉产出（Flutter 要求 GNU/Linux 构建主机），
-# 因此三端安装包统一由本工作流在各自官方 runner 上出；Windows/Android 本机也能出（见 README）。
+# iOS 只能在 macOS 上编，因此各平台安装包统一由本工作流在各自官方 runner 上出；
+# Windows / Android / Web 本机也能出（见 README）。
 on:
   workflow_dispatch:
     inputs:
@@ -147,9 +148,61 @@ jobs:
           name: android
           path: dist/*
 
+  web:
+    name: Web（静态站点）
+    needs: [meta, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      # 全新 runner 上 Web 目标可能默认未启用；本机实测缺这一步 build web 会直接报 unsupported
+      - run: flutter config --enable-web
+      - run: flutter build web --release --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 打包静态站点
+        run: |
+          set -e
+          V="${{ needs.meta.outputs.version }}"
+          mkdir -p dist
+          (cd build/web && zip -qr "../../dist/werewolf-client-$V-web.zip" .)
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/*
+
+  ios:
+    name: iOS（未签名）
+    needs: [meta, quality]
+    # 固定 macos-14：Flutter 3.24.5 需要 Xcode 15；macos-latest 已升到 Xcode 16，可能不兼容
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      # 无签名证书，只能编未签名包；真机安装需自行用开发者证书重签
+      - run: flutter build ios --release --no-codesign --dart-define=WW_SERVER=${{ vars.WW_SERVER }}
+      - name: 打包未签名产物
+        run: |
+          set -e
+          V="${{ needs.meta.outputs.version }}"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app "dist/werewolf-client-$V-ios-unsigned.zip"
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/*
+
   release:
     name: 发布
-    needs: [meta, windows, linux, android]
+    needs: [meta, windows, linux, android, web, ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

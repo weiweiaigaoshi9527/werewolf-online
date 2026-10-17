@@ -13,6 +13,7 @@ import '../sfx.dart';
 import '../store.dart';
 import '../theme.dart';
 import 'appearance_panel.dart';
+import 'scene3d_view.dart';
 import '../i18n.dart';
 
 class GameScreen extends StatefulWidget {
@@ -488,6 +489,17 @@ class _GameScreenState extends State<GameScreen> {
         appBar: AppBar(
           title: Tx('${_phaseLabel(phase)} · 第 ${g['day'] ?? 1} 天'),
           actions: [
+            // 3D 视角开关（对应网页端 #btn-3d，持久化键 ww_mode_3d）
+            ListenableBuilder(
+              listenable: scene3dMode,
+              builder: (context, _) => IconButton(
+                tooltip: scene3dMode.on ? tr('退出 3D 视角') : tr('3D 视角'),
+                icon: Icon(scene3dMode.on
+                    ? Icons.threed_rotation
+                    : Icons.view_in_ar_outlined),
+                onPressed: () => unawaited(scene3dMode.toggle()),
+              ),
+            ),
             IconButton(
               tooltip: tr('座位标记（只有你自己看得到）'),
               icon: const Icon(Icons.flag_outlined),
@@ -530,17 +542,26 @@ class _GameScreenState extends State<GameScreen> {
         ),
         body: Column(
           children: [
-            // 座位
-            SizedBox(
-              height: 150,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.all(10),
-                children: [
-                  for (final s in seats)
-                    _seatChip(s as Map, mySeat, store.marks[(s['seat'] as num?)?.toInt()] ?? 0),
-                ],
-              ),
+            // 座位：3D 视角与 2D 座位条二选一（对应网页端 #btn-3d）
+            ListenableBuilder(
+              listenable: scene3dMode,
+              builder: (context, _) => scene3dMode.on
+                  ? SizedBox(
+                      height: _scene3dHeight(context),
+                      child: Scene3dView(view: g),
+                    )
+                  : SizedBox(
+                      height: 150,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.all(10),
+                        children: [
+                          for (final s in seats)
+                            _seatChip(s as Map, mySeat,
+                                store.marks[(s['seat'] as num?)?.toInt()] ?? 0),
+                        ],
+                      ),
+                    ),
             ),
             // 语音实时字幕
             if (store.voiceCaptions.isNotEmpty) _captionStrip(store),
@@ -1166,4 +1187,8 @@ class _GameScreenState extends State<GameScreen> {
         'NIGHT_RESOLVE': '🌙',
       }[t] ??
       '·';
+
+  /// 3D 视角高度：占屏约 42%，夹在 [220, 420]，兼顾手机横竖屏与桌面。
+  double _scene3dHeight(BuildContext c) =>
+      (MediaQuery.sizeOf(c).height * 0.42).clamp(220.0, 420.0);
 }
