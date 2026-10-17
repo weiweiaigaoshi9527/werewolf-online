@@ -1,6 +1,9 @@
 // CI 工作流自检：不跑真实构建，只做"花一次 CI 才能发现"的静态检查。
 //   dart run tool/check_workflow.dart
 //
+// 注意：GitHub 只识别仓库根目录的 .github/workflows/，而本工程在 werewolf_app/ 子目录，
+// 因此工作流文件位于仓库根，本脚本从 werewolf_app/ 出发用相对路径读取。
+//
 // 检查项：
 //  1. workflow 里引用的每个仓库路径确实存在（防止改名后 CI 才 404）；
 //  2. meta job 抽版本号的正则，对当前 pubspec.yaml 能算出合法版本；
@@ -10,7 +13,7 @@
 
 import 'dart:io';
 
-const wf = '.github/workflows/client-release.yml';
+const wf = '../.github/workflows/client-release.yml';
 
 void main() {
   final errors = <String>[];

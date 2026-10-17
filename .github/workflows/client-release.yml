@@ -2,7 +2,10 @@ name: 五端客户端构建
 
 # Linux 桌面版无法在 Windows 上交叉产出（Flutter 要求 GNU/Linux 构建主机），
 # iOS 只能在 macOS 上编，因此各平台安装包统一由本工作流在各自官方 runner 上出；
-# Windows / Android / Web 本机也能出（见 README）。
+# Windows / Android / Web 本机也能出（见 werewolf_app/README.md）。
+#
+# 注意：GitHub 只识别仓库根目录的 .github/workflows/。
+# 本仓库的 Flutter 工程在 werewolf_app/ 子目录，故统一用 defaults.run.working-directory 切进去。
 on:
   workflow_dispatch:
     inputs:
@@ -15,6 +18,10 @@ on:
 
 env:
   FLUTTER_VERSION: '3.24.5'
+
+defaults:
+  run:
+    working-directory: werewolf_app
 
 jobs:
   meta:
@@ -74,7 +81,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: dist\*.zip
+          path: werewolf_app/dist/*.zip
 
   linux:
     name: Linux x64（deb + 便携包）
@@ -100,6 +107,7 @@ jobs:
           # git 会以 "detected dubious ownership" 拒绝操作（flutter pub get 会直接失败）。
           git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
+        # checkout 必须在仓库根，不能受 default working-directory 影响（uses 本就不受影响）。
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -112,7 +120,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x64
-          path: dist/*
+          path: werewolf_app/dist/*
 
   android:
     name: Android APK / AAB
@@ -146,7 +154,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: dist/*
+          path: werewolf_app/dist/*
 
   web:
     name: Web（静态站点）
@@ -172,7 +180,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: web
-          path: dist/*
+          path: werewolf_app/dist/*
 
   ios:
     name: iOS（未签名）
@@ -198,7 +206,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ios
-          path: dist/*
+          path: werewolf_app/dist/*
 
   release:
     name: 发布
